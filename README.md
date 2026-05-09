@@ -1,10 +1,9 @@
 # praxis
 
-Self-improving agent runtime for the [cruxx](https://github.com/89jobrien/cruxx)
-agentic DSL. Closes the loop between execution traces, evaluation, and
-strategy evolution — agents get better at their job across sessions.
+Self-improving agent runtime for the [cruxx](https://github.com/89jobrien/cruxx) agentic DSL.
+Closes the loop between execution traces, evaluation, and strategy evolution so agents get better at their job across sessions.
 
-```
+```text
 RUN -> TRACE -> EVALUATE -> PROPOSE -> VALIDATE -> APPLY
  ^                                                   |
  +---------------------------------------------------+
@@ -12,20 +11,14 @@ RUN -> TRACE -> EVALUATE -> PROPOSE -> VALIDATE -> APPLY
 
 ## What it does
 
-Every time an agent runs, cruxx captures a `Crux<T>` trace — a full
-causal record of every step, delegation, and speculation. Praxis takes
-that trace and:
+Every time an agent runs, cruxx captures a `Crux<T>` trace — a full causal record of every step, delegation, and speculation. Praxis takes that trace and:
 
-1. **Evaluates** it — extracts metrics (success rate, confidence,
-   error distribution, delegation depth, speculation hit rate) and
-   generates findings
+1. **Evaluates** it — extracts metrics (success rate, confidence, error distribution, delegation depth, speculation hit rate) and generates findings
 2. **Records** the reward score and computes trend direction over time
 3. **Proposes** strategy improvements backed by evidence
-4. **Validates** each proposal against a safety policy (auto-approve
-   low-risk, defer high-risk for human approval)
+4. **Validates** each proposal against a safety policy (auto-approve low-risk, defer high-risk for human approval)
 5. **Applies** accepted changes to the agent's strategy
-6. **Compares** the new trace against the previous one and detects
-   regressions
+6. **Compares** the new trace against the previous one and detects regressions
 
 If a strategy change causes a regression, it can be rolled back.
 
@@ -79,9 +72,7 @@ praxis -- self-improving agent runtime demo
 
 ## Architecture
 
-Hexagonal (ports/adapters). Domain logic as traits, adapters are
-swappable. The `ImprovementLoop` is thread-safe, cloneable, and
-supports both sequential and concurrent trace evaluation.
+Hexagonal (ports/adapters). Domain logic as traits, adapters are swappable. The `ImprovementLoop` is thread-safe, cloneable, and supports both sequential and concurrent trace evaluation.
 
 ```
 praxis/
@@ -115,8 +106,7 @@ praxis/
 praxis -> cruxx-improve -> cruxx-core, cruxx-types, cruxx-planner
 ```
 
-Praxis never imports cruxx internals directly. `cruxx-improve` is the
-single bridge crate providing:
+Praxis never imports cruxx internals directly. `cruxx-improve` is the single bridge crate providing:
 
 - Re-exports: `Crux<T>`, `Step`, `CruxId`, `SafetyPolicy`, `HarnessDiff`
 - `TraceMetrics` — structured extraction from traces (crux-domain knowledge)
@@ -137,22 +127,17 @@ single bridge crate providing:
 | `ConfidenceThreshold`   | Routing thresholds           | "Lower speculate to 0.6" |
 
 Low-risk changes (thresholds, tool preferences) are auto-applied.
-High-risk changes (prompt patches, delegation rules) are deferred for
-human approval.
+High-risk changes (prompt patches, delegation rules) are deferred for human approval.
 
 ## Safety
 
 Every proposed improvement passes through a `StrategyPolicy` before
 application:
 
-- **Validation**: rejects changes that exceed configured limits
-  (e.g., too many simultaneous changes)
-- **Approval gating**: prompt patches and delegation rules require
-  explicit approval; threshold tweaks auto-approve
-- **Rollback**: `loop.rollback(version)` restores any previous
-  strategy snapshot
-- **Regression detection**: `replay_compare` detects when a strategy
-  change makes things worse
+- **Validation**: rejects changes that exceed configured limits (e.g., too many simultaneous changes)
+- **Approval gating**: prompt patches and delegation rules require explicit approval; threshold tweaks auto-approve
+- **Rollback**: `loop.rollback(version)` restores any previous strategy snapshot
+- **Regression detection**: `replay_compare` detects when a strategy change makes things worse
 
 ## Usage
 

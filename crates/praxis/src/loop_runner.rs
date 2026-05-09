@@ -1,9 +1,12 @@
-use cruxx_improve::{Comparison, Crux, StrategyPolicy, StrategyViolation, replay_compare};
-use cruxx_improve::{Improvement, Strategy};
+use cruxx_improve::{
+    Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
+};
 use praxis_core::evaluator::{Evaluation, Evaluator};
 use praxis_core::reward::RewardAccumulator;
 use praxis_core::store::StrategyStore;
 use praxis_core::strategy::StrategyPlanner;
+use std::sync::Arc;
+use tokio::sync::{Mutex, Semaphore};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoopError {
@@ -25,13 +28,48 @@ pub struct CycleResult {
     pub comparison: Option<Comparison>,
 }
 
+/// Configuration for the improvement loop.
+#[derive(Debug, Clone)]
+pub struct LoopConfig {
+    /// Max concurrent evaluation cycles in `run_batch`.
+    pub concurrency: usize,
+}
+
+impl Default for LoopConfig {
+    fn default() -> Self {
+        Self { concurrency: 4 }
+    }
+}
+
+/// Batch result: one CycleResult per trace, in submission order.
+pub struct BatchResult {
+    pub results: Vec<Result<CycleResult, LoopError>>,
+}
+
+impl BatchResult {
+    pub fn succeeded(&self) -> usize {
+        self.results.iter().filter(|r| r.is_ok()).count()
+    }
+
+    pub fn failed(&self) -> usize {
+        self.results.iter().filter(|r| r.is_err()).count()
+    }
+}
+
+/// Self-improving agent runtime loop.
+///
+/// Thread-safe and cloneable. Supports both sequential (`run_cycle`)
+/// and concurrent (`run_batch`) trace evaluation with configurable
+/// concurrency.
+#[derive(Clone)]
 pub struct ImprovementLoop {
-    evaluator: Box<dyn Evaluator>,
-    planner: Box<dyn StrategyPlanner>,
-    store: Box<dyn StrategyStore>,
-    rewards: Box<dyn RewardAccumulator>,
-    policy: Box<dyn StrategyPolicy>,
-    last_trace: Option<Crux<serde_json::Value>>,
+    evaluator: Arc<dyn Evaluator>,
+    planner: Arc<dyn StrategyPlanner>,
+    store: Arc<Mutex<Box<dyn StrategyStore>>>,
+    rewards: Arc<Mutex<Box<dyn RewardAccumulator>>>,
+    policy: Arc<dyn StrategyPolicy>,
+    last_traces: Arc<Mutex<std::collections::HashMap<String, Crux<serde_json::Value>>>>,
+    config: LoopConfig,
 }
 
 impl ImprovementLoop {
@@ -42,40 +80,66 @@ impl ImprovementLoop {
         rewards: Box<dyn RewardAccumulator>,
         policy: Box<dyn StrategyPolicy>,
     ) -> Self {
-        Self {
+        Self::with_config(
             evaluator,
             planner,
             store,
             rewards,
             policy,
-            last_trace: None,
+            LoopConfig::default(),
+        )
+    }
+
+    pub fn with_config(
+        evaluator: Box<dyn Evaluator>,
+        planner: Box<dyn StrategyPlanner>,
+        store: Box<dyn StrategyStore>,
+        rewards: Box<dyn RewardAccumulator>,
+        policy: Box<dyn StrategyPolicy>,
+        config: LoopConfig,
+    ) -> Self {
+        Self {
+            evaluator: Arc::from(evaluator),
+            planner: Arc::from(planner),
+            store: Arc::new(Mutex::new(store)),
+            rewards: Arc::new(Mutex::new(rewards)),
+            policy: Arc::from(policy),
+            last_traces: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            config,
         }
     }
 
-    pub fn current_strategy(&self) -> Strategy {
-        self.store.current()
+    pub async fn current_strategy(&self) -> Strategy {
+        self.store.lock().await.current()
     }
 
+    /// Run a single improvement cycle for one trace.
     pub async fn run_cycle(
-        &mut self,
+        &self,
         trace: &Crux<serde_json::Value>,
     ) -> Result<CycleResult, LoopError> {
-        // 1. Evaluate
+        // 1. Evaluate (stateless, no lock needed)
         let evaluation = self.evaluator.evaluate(trace).await?;
 
         // 2. Record reward
-        self.rewards
-            .record(trace.id.clone(), &trace.agent, evaluation.score)
-            .await?;
+        {
+            let mut rewards = self.rewards.lock().await;
+            rewards
+                .record(trace.id.clone(), &trace.agent, evaluation.score)
+                .await?;
+        }
 
         // 3. Get trend
-        let trend = self.rewards.trend(&trace.agent).await?;
+        let trend = {
+            let rewards = self.rewards.lock().await;
+            rewards.trend(&trace.agent).await?
+        };
 
         // 4. Propose improvements
-        let current = self.store.current();
+        let current = { self.store.lock().await.current() };
         let improvements = self.planner.propose(&evaluation, &trend, &current).await?;
 
-        // 5. Validate and partition: applied vs deferred (needs approval)
+        // 5. Validate and partition: applied vs deferred
         let mut applied = Vec::new();
         let mut deferred = Vec::new();
         let mut strategy = current;
@@ -86,19 +150,25 @@ impl ImprovementLoop {
             if self.policy.requires_strategy_approval(&improvement.diff) {
                 deferred.push(improvement);
             } else {
-                strategy = self.store.apply(&improvement.diff);
+                let mut store = self.store.lock().await;
+                strategy = store.apply(&improvement.diff);
                 applied.push(improvement);
             }
         }
 
-        // 6. Compare with previous trace
-        let comparison = self
-            .last_trace
-            .as_ref()
-            .map(|old| replay_compare(old, trace));
+        // 6. Compare with previous trace for this agent
+        let comparison = {
+            let traces = self.last_traces.lock().await;
+            traces
+                .get(&trace.agent)
+                .map(|old| replay_compare(old, trace))
+        };
 
-        // 7. Store for next comparison
-        self.last_trace = Some(trace.clone());
+        // 7. Store for next comparison (per-agent)
+        {
+            let mut traces = self.last_traces.lock().await;
+            traces.insert(trace.agent.clone(), trace.clone());
+        }
 
         Ok(CycleResult {
             evaluation,
@@ -109,8 +179,44 @@ impl ImprovementLoop {
         })
     }
 
-    pub fn rollback(&mut self, version: u64) {
-        self.store.rollback(version);
+    /// Run improvement cycles for multiple traces concurrently.
+    ///
+    /// Concurrency is bounded by `config.concurrency`. Results are
+    /// returned in submission order. Each trace is evaluated
+    /// independently; strategy updates are serialized through the
+    /// shared store lock.
+    pub async fn run_batch(&self, traces: &[Crux<serde_json::Value>]) -> BatchResult {
+        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
+
+        let handles: Vec<_> = traces
+            .iter()
+            .map(|trace| {
+                let sem = semaphore.clone();
+                let loop_clone = self.clone();
+                let trace = trace.clone();
+
+                tokio::spawn(async move {
+                    let _permit = sem.acquire().await.unwrap();
+                    loop_clone.run_cycle(&trace).await
+                })
+            })
+            .collect();
+
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.await {
+                Ok(result) => results.push(result),
+                Err(e) => results.push(Err(LoopError::Evaluation(
+                    praxis_core::evaluator::EvaluationError::Failed(e.to_string()),
+                ))),
+            }
+        }
+
+        BatchResult { results }
+    }
+
+    pub async fn rollback(&self, version: u64) {
+        self.store.lock().await.rollback(version);
     }
 }
 
@@ -123,10 +229,10 @@ mod tests {
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
 
-    fn make_trace(confidence: f32, status: StepStatus) -> Crux<serde_json::Value> {
+    fn make_trace(agent: &str, confidence: f32, status: StepStatus) -> Crux<serde_json::Value> {
         Crux {
             id: CruxId::new(),
-            agent: "test-agent".into(),
+            agent: agent.into(),
             value: Ok(serde_json::json!({})),
             steps: vec![Step {
                 name: "step-1".into(),
@@ -149,17 +255,21 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn full_cycle_evaluates_and_records() {
-        let dir = TempDir::new().unwrap();
-        let mut runner = ImprovementLoop::new(
+    fn make_loop(dir: &TempDir) -> ImprovementLoop {
+        ImprovementLoop::new(
             Box::new(StubEvaluator),
             Box::new(DeterministicStrategyPlanner::default()),
             Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
             Box::new(InMemoryRewardStore::new()),
             Box::new(DefaultStrategyPolicy::default()),
-        );
-        let trace = make_trace(0.5, StepStatus::Ok);
+        )
+    }
+
+    #[tokio::test]
+    async fn full_cycle_evaluates_and_records() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir);
+        let trace = make_trace("test-agent", 0.5, StepStatus::Ok);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(result.evaluation.score > 0.0);
         assert!(result.comparison.is_none());
@@ -168,20 +278,91 @@ mod tests {
     #[tokio::test]
     async fn second_cycle_produces_comparison() {
         let dir = TempDir::new().unwrap();
-        let mut runner = ImprovementLoop::new(
+        let runner = make_loop(&dir);
+        runner
+            .run_cycle(&make_trace("test-agent", 0.5, StepStatus::Ok))
+            .await
+            .unwrap();
+
+        let result = runner
+            .run_cycle(&make_trace("test-agent", 0.8, StepStatus::Ok))
+            .await
+            .unwrap();
+        assert!(result.comparison.is_some());
+    }
+
+    #[tokio::test]
+    async fn per_agent_comparison_tracking() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir);
+
+        // Agent A: two cycles -> comparison on second
+        runner
+            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
+            .await
+            .unwrap();
+        let r = runner
+            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok))
+            .await
+            .unwrap();
+        assert!(r.comparison.is_some());
+
+        // Agent B: first cycle -> no comparison (independent)
+        let r = runner
+            .run_cycle(&make_trace("agent-b", 0.6, StepStatus::Ok))
+            .await
+            .unwrap();
+        assert!(r.comparison.is_none());
+    }
+
+    #[tokio::test]
+    async fn batch_processes_all_traces() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir);
+
+        let traces: Vec<_> = (0..5)
+            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
+            .collect();
+
+        let batch = runner.run_batch(&traces).await;
+        assert_eq!(batch.succeeded(), 5);
+        assert_eq!(batch.failed(), 0);
+    }
+
+    #[tokio::test]
+    async fn batch_respects_concurrency() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::with_config(
             Box::new(StubEvaluator),
             Box::new(DeterministicStrategyPlanner::default()),
             Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
             Box::new(InMemoryRewardStore::new()),
             Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig { concurrency: 2 },
         );
+
+        let traces: Vec<_> = (0..10)
+            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
+            .collect();
+
+        let batch = runner.run_batch(&traces).await;
+        assert_eq!(batch.succeeded(), 10);
+    }
+
+    #[tokio::test]
+    async fn clone_shares_state() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir);
+        let runner2 = runner.clone();
+
         runner
-            .run_cycle(&make_trace(0.5, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
             .await
             .unwrap();
 
-        let result = runner
-            .run_cycle(&make_trace(0.8, StepStatus::Ok))
+        // Cloned runner sees the same reward history
+        let result = runner2
+            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok))
             .await
             .unwrap();
         assert!(result.comparison.is_some());

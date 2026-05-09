@@ -32,9 +32,11 @@ If a strategy change causes a regression, it can be rolled back.
 ## Demo
 
 ```
-$ cargo run -p praxis
+$ cargo xtask demo
 
 praxis -- self-improving agent runtime demo
+
+=== Sequential improvement loop ===
 
 --- session-1: struggling agent ---
   score: 0.28  |  success_rate: 33%  |  avg_confidence: 0.20
@@ -62,33 +64,49 @@ praxis -- self-improving agent runtime demo
   [applied] ConfidenceThreshold -> demo-agent (confidence: 0.70)
   vv REGRESSED (delta: -0.578)
   strategy v3: 0 tool prefs, 1 thresholds
+
+=== Batch evaluation (concurrency: 4) ===
+
+  6 succeeded, 0 failed
+
+  [0] fetch-agent -- score: 0.95
+  [1] broken-agent -- score: 0.04
+  [2] deploy-agent -- score: 0.93
+  [3] review-agent -- score: 0.87
+  [4] search-agent -- score: 0.48
+  [5] test-agent -- score: 0.95
 ```
 
 ## Architecture
 
 Hexagonal (ports/adapters). Domain logic as traits, adapters are
-swappable.
+swappable. The `ImprovementLoop` is thread-safe, cloneable, and
+supports both sequential and concurrent trace evaluation.
 
 ```
-praxis
-  |
-  +-- praxis-core       port traits (zero async, zero adapters)
-  |     Evaluator           scores a trace, produces findings
-  |     StrategyPlanner     proposes improvements from eval + trend
-  |     StrategyStore       persists strategy with rollback
-  |     RewardAccumulator   records rewards, computes trends
-  |
-  +-- praxis-eval        evaluator + planner adapters
-  |     MetricsEvaluator           generates findings from trace metrics
-  |     StubEvaluator              returns neutral scores (testing)
-  |     DeterministicStrategyPlanner   rule-based improvement proposals
-  |
-  +-- praxis-store       storage adapters
-  |     InMemoryRewardStore        in-process reward tracking
-  |     FileStrategyStore          JSON file with snapshot history
-  |
-  +-- praxis             orchestrator
-        ImprovementLoop            wires everything together
+praxis/
+  crates/
+    praxis-core/       port traits (zero async, zero adapters)
+      Evaluator           scores a trace, produces findings
+      StrategyPlanner     proposes improvements from eval + trend
+      StrategyStore       persists strategy with rollback
+      RewardAccumulator   records rewards, computes trends
+
+    praxis-eval/       evaluator + planner adapters
+      MetricsEvaluator              findings from trace metrics
+      StubEvaluator                 neutral scores (testing)
+      DeterministicStrategyPlanner  rule-based proposals
+
+    praxis-store/      storage adapters
+      InMemoryRewardStore           in-process reward tracking
+      FileStrategyStore             JSON file with snapshot history
+
+    praxis/            orchestrator
+      ImprovementLoop               sequential + concurrent cycles
+      LoopConfig                    concurrency settings
+      BatchResult                   aggregated batch outcomes
+
+  xtask/               workspace build tasks
 ```
 
 ### Dependency direction
@@ -138,13 +156,15 @@ application:
 
 ## Usage
 
+### Sequential
+
 ```rust
 use praxis::ImprovementLoop;
 use praxis_eval::{MetricsEvaluator, DeterministicStrategyPlanner};
 use praxis_store::{InMemoryRewardStore, FileStrategyStore};
 use cruxx_improve::DefaultStrategyPolicy;
 
-let mut loop_runner = ImprovementLoop::new(
+let loop_runner = ImprovementLoop::new(
     Box::new(MetricsEvaluator),
     Box::new(DeterministicStrategyPlanner::default()),
     Box::new(FileStrategyStore::new("strategy.json".into())),
@@ -155,20 +175,47 @@ let mut loop_runner = ImprovementLoop::new(
 // After each agent run, feed the trace:
 let result = loop_runner.run_cycle(&trace).await?;
 
-// result.evaluation   — score + findings + metrics
-// result.applied      — improvements that were auto-applied
-// result.deferred     — improvements needing human approval
-// result.comparison   — verdict vs previous trace (if any)
-// result.strategy     — current strategy state
+// result.evaluation   -- score + findings + metrics
+// result.applied      -- improvements that were auto-applied
+// result.deferred     -- improvements needing human approval
+// result.comparison   -- verdict vs previous trace (if any)
+// result.strategy     -- current strategy state
 ```
+
+### Concurrent batch
+
+```rust
+use praxis::{ImprovementLoop, LoopConfig};
+
+let loop_runner = ImprovementLoop::with_config(
+    evaluator, planner, store, rewards, policy,
+    LoopConfig { concurrency: 8 },
+);
+
+// Evaluate multiple traces concurrently (semaphore-bounded):
+let batch = loop_runner.run_batch(&traces).await;
+
+println!("{} succeeded, {} failed", batch.succeeded(), batch.failed());
+
+for result in &batch.results {
+    match result {
+        Ok(r) => println!("{}: {:.2}", r.evaluation.agent, r.evaluation.score),
+        Err(e) => println!("FAILED: {e}"),
+    }
+}
+```
+
+The loop is `Clone` — cloned instances share state (rewards, strategy
+store, per-agent comparison tracking). Safe to pass across tasks.
 
 ## Building
 
 ```bash
-just ci        # fmt + clippy + nextest
-just test      # cargo nextest run
-just lint      # cargo clippy --all-targets -- -D warnings
-cargo run      # run demo
+cargo xtask ci       # fmt-check + clippy + nextest
+cargo xtask test     # cargo nextest run
+cargo xtask lint     # cargo clippy --all-targets -- -D warnings
+cargo xtask demo     # run the demo
+cargo xtask build    # cargo build --all-targets
 ```
 
 Requires Rust 1.85+ (edition 2024).

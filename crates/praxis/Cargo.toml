@@ -1,0 +1,20 @@
+[package]
+name = "praxis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Self-improving agent runtime"
+
+[dependencies]
+praxis-core = { path = "../praxis-core" }
+praxis-eval = { path = "../praxis-eval" }
+praxis-store = { path = "../praxis-store" }
+cruxx-improve = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+chrono = { workspace = true }
+tempfile = "3"

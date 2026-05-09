@@ -1,0 +1,19 @@
+[package]
+name = "praxis-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Storage adapters for praxis"
+
+[dependencies]
+praxis-core = { path = "../praxis-core" }
+cruxx-improve = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

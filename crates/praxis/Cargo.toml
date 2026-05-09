@@ -12,9 +12,9 @@ praxis-eval = { path = "../praxis-eval" }
 praxis-store = { path = "../praxis-store" }
 cruxx-improve = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }
-chrono = { workspace = true }
 tempfile = "3"

@@ -1,6 +1,17 @@
 project: praxis
 id: praxis
-updated: 2026-05-09
+updated: 2026-05-10
 items: []
-log: []
+log:
+  - date: 2026-05-10
+    summary: |-
+      0de20a3 chore: rename handoff to hj convention, reformat README
+      95936d2 docs: update README with concurrent batch API and xtask commands
+      7437259 refactor: remove praxis-task, add concurrent batch to ImprovementLoop
+      277aa03 feat: add xtask for workspace build tasks
+      4fe7bbf feat(praxis-task): add concurrent task queue with status tracking
+      3d9c4de feat: add MetricsEvaluator, demo binary, and README
+      cde355a feat: scaffold praxis workspace
+    commits:
+      - 0de20a3
 repo: praxis

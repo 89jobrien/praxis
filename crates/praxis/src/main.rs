@@ -4,7 +4,7 @@ use praxis::{ImprovementLoop, LoopConfig};
 use praxis_core::StrategyStore as _;
 use praxis_eval::{DeterministicStrategyPlanner, MetricsEvaluator};
 use praxis_store::{FileStrategyStore, InMemoryRewardStore};
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 fn make_trace(agent: &str, steps: Vec<(&str, StepStatus, f32)>) -> Crux<serde_json::Value> {
     Crux {
@@ -34,10 +34,23 @@ fn make_trace(agent: &str, steps: Vec<(&str, StepStatus, f32)>) -> Crux<serde_js
         finished_at: Some(Utc::now()),
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DemoMode {
+    Standard,
+    Live,
+}
 
 #[tokio::main]
 async fn main() {
-    println!("praxis -- self-improving agent runtime demo\n");
+    let mode = demo_mode_from_args();
+
+    match mode {
+        DemoMode::Standard => println!("praxis -- self-improving agent runtime demo\n"),
+        DemoMode::Live => {
+            println!("praxis -- live self-improving agent runtime demo\n");
+            print_live_intro();
+        }
+    }
 
     let strategy_path = PathBuf::from("/tmp/praxis-demo-strategy.json");
     let _ = std::fs::remove_file(&strategy_path);
@@ -103,11 +116,17 @@ async fn main() {
 
     for (label, steps) in sessions {
         println!("--- {label} ---");
+        if mode == DemoMode::Live {
+            print_live_trace_input(&steps);
+        }
 
         let trace = make_trace("demo-agent", steps);
         let result = loop_runner.run_cycle(&trace).await.unwrap();
 
         print_result(&result);
+        if mode == DemoMode::Live {
+            print_live_analysis(&result);
+        }
         println!();
     }
 
@@ -195,6 +214,18 @@ async fn main() {
     }
 }
 
+fn demo_mode_from_args() -> DemoMode {
+    let mut args = env::args().skip(1);
+    match args.next().as_deref() {
+        None => DemoMode::Standard,
+        Some("live") | Some("live-demo") | Some("--live") => DemoMode::Live,
+        Some(arg) => {
+            eprintln!("unknown demo argument: {arg}");
+            eprintln!("usage: praxis [live-demo]");
+            std::process::exit(2);
+        }
+    }
+}
 fn print_result(result: &praxis::CycleResult) {
     println!(
         "  score: {:.2}  |  success_rate: {:.0}%  |  avg_confidence: {:.2}",
@@ -231,4 +262,68 @@ fn print_result(result: &praxis::CycleResult) {
         result.strategy.tool_preferences.len(),
         result.strategy.confidence_thresholds.len(),
     );
+}
+
+fn print_live_intro() {
+    println!("Live scoring model:");
+    println!("  score = 0.60 * success_rate + 0.40 * avg_confidence");
+    println!("  verdict = improved/regressed when score delta crosses +/-0.05");
+    println!("  planner applies a ConfidenceThreshold when score < 0.60 and findings exist\n");
+}
+
+fn print_live_trace_input(steps: &[(&str, StepStatus, f32)]) {
+    println!("  input trace:");
+    for (name, status, confidence) in steps {
+        println!(
+            "    - {name}: {} (confidence {:.2})",
+            status_label(*status),
+            confidence
+        );
+    }
+}
+
+fn print_live_analysis(result: &praxis::CycleResult) {
+    if !result.evaluation.findings.is_empty() {
+        println!("  findings:");
+        for finding in &result.evaluation.findings {
+            println!("    - {finding}");
+        }
+    }
+
+    if let Some(threshold) = result
+        .strategy
+        .confidence_thresholds
+        .get("speculate_threshold")
+    {
+        println!("  active threshold: speculate_threshold={threshold:.2}");
+    }
+
+    if let Some(cmp) = &result.comparison {
+        println!(
+            "  score math: {:.3} -> {:.3} ({:+.3})",
+            cmp.old_metrics.score, cmp.new_metrics.score, cmp.delta
+        );
+        println!(
+            "  success_rate: {:.0}% -> {:.0}% | avg_confidence: {:.2} -> {:.2}",
+            cmp.old_metrics.success_rate * 100.0,
+            cmp.new_metrics.success_rate * 100.0,
+            cmp.old_metrics.avg_confidence,
+            cmp.new_metrics.avg_confidence
+        );
+
+        if cmp.delta < -0.05 {
+            println!(
+                "  regression cause: the new trace has fewer successful steps and lower confidence than the previous trace"
+            );
+        }
+    }
+}
+
+fn status_label(status: StepStatus) -> &'static str {
+    match status {
+        StepStatus::Ok => "ok",
+        StepStatus::Err => "err",
+        StepStatus::Rejected => "rejected",
+        StepStatus::Skipped => "skipped",
+    }
 }

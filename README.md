@@ -70,6 +70,41 @@ praxis -- self-improving agent runtime demo
   [5] test-agent -- score: 0.95
 ```
 
+For a narrated version that prints the input trace, findings, active threshold,
+and score math for each cycle:
+
+```bash
+cargo xtask live-demo
+```
+
+### Regression finding
+
+Session 5 is an intentional regression fixture in the demo trace data. The
+score comes from `TraceMetrics`:
+
+```text
+score = 0.60 * success_rate + 0.40 * avg_confidence
+```
+
+Session 4 has four successful steps and high confidence:
+
+- success rate: `100%`
+- average confidence: `0.81`
+- score: `0.925`
+
+Session 5 then drops to one successful step out of three, with lower
+confidence:
+
+- success rate: `33%`
+- average confidence: `0.37`
+- score: `0.347`
+
+The comparison delta is `0.347 - 0.925 = -0.578`, which crosses the
+regression threshold of `-0.05`, so `replay_compare` reports
+`vv REGRESSED`. The low score also causes the deterministic planner to apply a
+new `ConfidenceThreshold` because the score is below `0.60` and the evaluator
+produces findings for low success rate, low confidence, and high error rate.
+
 ## Architecture
 
 Hexagonal (ports/adapters). Domain logic as traits, adapters are swappable. The `ImprovementLoop` is thread-safe, cloneable, and supports both sequential and concurrent trace evaluation.
@@ -200,6 +235,7 @@ cargo xtask ci       # fmt-check + clippy + nextest
 cargo xtask test     # cargo nextest run
 cargo xtask lint     # cargo clippy --all-targets -- -D warnings
 cargo xtask demo     # run the demo
+cargo xtask live-demo # run the narrated live demo
 cargo xtask build    # cargo build --all-targets
 ```
 

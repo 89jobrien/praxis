@@ -1,3 +1,4 @@
+use crate::approval::{ApprovalDecision, ApprovalGate, AutoApproveGate};
 use cruxx_improve::{
     Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
 };
@@ -73,6 +74,7 @@ pub struct ImprovementLoop {
     store: Arc<Mutex<Box<dyn StrategyStore>>>,
     rewards: Arc<Mutex<Box<dyn RewardAccumulator>>>,
     policy: Arc<dyn StrategyPolicy>,
+    approval_gate: Arc<dyn ApprovalGate>,
     last_traces: Arc<Mutex<std::collections::HashMap<String, Crux<serde_json::Value>>>>,
     config: LoopConfig,
 }
@@ -109,9 +111,16 @@ impl ImprovementLoop {
             store: Arc::new(Mutex::new(store)),
             rewards: Arc::new(Mutex::new(rewards)),
             policy: Arc::from(policy),
+            approval_gate: Arc::new(AutoApproveGate),
             last_traces: Arc::new(Mutex::new(std::collections::HashMap::new())),
             config,
         }
+    }
+
+    /// Replace the approval gate with a custom implementation.
+    pub fn with_approval_gate(mut self, gate: Box<dyn ApprovalGate>) -> Self {
+        self.approval_gate = Arc::from(gate);
+        self
     }
 
     pub async fn current_strategy(&self) -> Strategy {
@@ -148,7 +157,17 @@ impl ImprovementLoop {
             self.policy.validate_strategy(&improvement.diff)?;
 
             if self.policy.requires_strategy_approval(&improvement.diff) {
-                deferred.push(improvement);
+                match self.approval_gate.review(&improvement).await {
+                    ApprovalDecision::Approved => {
+                        let mut store = self.store.lock().await;
+                        strategy = store.apply(&improvement.diff);
+                        applied.push(improvement);
+                    }
+                    ApprovalDecision::Rejected => { /* drop silently */ }
+                    ApprovalDecision::Deferred => {
+                        deferred.push(improvement);
+                    }
+                }
             } else {
                 let mut store = self.store.lock().await;
                 strategy = store.apply(&improvement.diff);
@@ -225,6 +244,8 @@ impl ImprovementLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::approval::ApprovalDecision;
+    use async_trait::async_trait;
     use chrono::Utc;
     use cruxx_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus};
     use praxis_eval::{DeterministicStrategyPlanner, StubEvaluator};
@@ -285,7 +306,6 @@ mod tests {
             .run_cycle(&make_trace("test-agent", 0.5, StepStatus::Ok))
             .await
             .unwrap();
-
         let result = runner
             .run_cycle(&make_trace("test-agent", 0.8, StepStatus::Ok))
             .await
@@ -297,7 +317,6 @@ mod tests {
     async fn per_agent_comparison_tracking() {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
-
         runner
             .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
             .await
@@ -307,7 +326,6 @@ mod tests {
             .await
             .unwrap();
         assert!(r.comparison.is_some());
-
         let r = runner
             .run_cycle(&make_trace("agent-b", 0.6, StepStatus::Ok))
             .await
@@ -319,11 +337,9 @@ mod tests {
     async fn batch_processes_all_traces() {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
-
         let traces: Vec<_> = (0..5)
             .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
             .collect();
-
         let batch = runner.run_batch(&traces).await;
         assert_eq!(batch.succeeded(), 5);
         assert_eq!(batch.failed(), 0);
@@ -343,11 +359,9 @@ mod tests {
                 ..Default::default()
             },
         );
-
         let traces: Vec<_> = (0..10)
             .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
             .collect();
-
         let batch = runner.run_batch(&traces).await;
         assert_eq!(batch.succeeded(), 10);
     }
@@ -379,16 +393,43 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
         let runner2 = runner.clone();
-
         runner
             .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
             .await
             .unwrap();
-
         let result = runner2
             .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok))
             .await
             .unwrap();
         assert!(result.comparison.is_some());
+    }
+
+    struct RejectAllGate;
+
+    #[async_trait]
+    impl ApprovalGate for RejectAllGate {
+        async fn review(&self, _: &Improvement) -> ApprovalDecision {
+            ApprovalDecision::Rejected
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_gate_can_reject() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::new(
+            Box::new(StubEvaluator),
+            Box::new(DeterministicStrategyPlanner {
+                low_score_threshold: 0.6,
+                improvement_confidence: 0.7,
+            }),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+        )
+        .with_approval_gate(Box::new(RejectAllGate));
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let result = runner.run_cycle(&trace).await.unwrap();
+        assert!(result.applied.is_empty());
+        assert!(result.deferred.is_empty());
     }
 }

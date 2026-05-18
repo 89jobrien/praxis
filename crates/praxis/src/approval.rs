@@ -23,6 +23,30 @@ impl ApprovalGate for AutoApproveGate {
     }
 }
 
+/// Interactive CLI approval gate. Prints improvement details to stdout
+/// and reads y/n/d from stdin.
+pub struct CliApprovalGate;
+
+#[async_trait]
+impl ApprovalGate for CliApprovalGate {
+    async fn review(&self, improvement: &Improvement) -> ApprovalDecision {
+        println!("Improvement proposed: {:?}", improvement.kind);
+        println!("  target: {}", improvement.target);
+        println!("  confidence: {:.2}", improvement.confidence);
+        println!("  evidence: {:?}", improvement.evidence);
+        print!("  approve? [y/n/d]: ");
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).ok();
+        match input.trim() {
+            "y" | "Y" | "yes" => ApprovalDecision::Approved,
+            "n" | "N" | "no" => ApprovalDecision::Rejected,
+            _ => ApprovalDecision::Deferred,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -64,7 +64,10 @@ async fn main() {
         Box::new(FileStrategyStore::new(strategy_path.clone())),
         Box::new(InMemoryRewardStore::new()),
         Box::new(DefaultStrategyPolicy::default()),
-        LoopConfig { concurrency: 4 },
+        LoopConfig {
+            concurrency: 4,
+            ..Default::default()
+        },
     );
 
     // === Sequential demo: 5 sessions with improving traces ===

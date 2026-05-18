@@ -1,5 +1,6 @@
 use cruxx_improve::{
-    Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
+    Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, Verdict,
+    replay_compare,
 };
 use praxis_core::evaluator::{Evaluation, Evaluator};
 use praxis_core::reward::RewardAccumulator;
@@ -33,11 +34,16 @@ pub struct CycleResult {
 pub struct LoopConfig {
     /// Max concurrent evaluation cycles in `run_batch`.
     pub concurrency: usize,
+    /// Automatically rollback strategy on regression detection.
+    pub auto_rollback: bool,
 }
 
 impl Default for LoopConfig {
     fn default() -> Self {
-        Self { concurrency: 4 }
+        Self {
+            concurrency: 4,
+            auto_rollback: false,
+        }
     }
 }
 
@@ -164,7 +170,20 @@ impl ImprovementLoop {
                 .map(|old| replay_compare(old, trace))
         };
 
-        // 7. Store for next comparison (per-agent)
+        // 7. Auto-rollback on regression
+        if self.config.auto_rollback {
+            if let Some(ref cmp) = comparison {
+                if cmp.verdict == Verdict::Regressed {
+                    let current_version = { self.store.lock().await.current().version };
+                    if current_version > 0 {
+                        self.store.lock().await.rollback(current_version - 1);
+                        strategy = self.store.lock().await.current();
+                    }
+                }
+            }
+        }
+
+        // 8. Store for next comparison (per-agent)
         {
             let mut traces = self.last_traces.lock().await;
             traces.insert(trace.agent.clone(), trace.clone());
@@ -224,7 +243,7 @@ impl ImprovementLoop {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use cruxx_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus};
+    use cruxx_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus, Verdict};
     use praxis_eval::{DeterministicStrategyPlanner, StubEvaluator};
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
@@ -338,7 +357,10 @@ mod tests {
             Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
             Box::new(InMemoryRewardStore::new()),
             Box::new(DefaultStrategyPolicy::default()),
-            LoopConfig { concurrency: 2 },
+            LoopConfig {
+                concurrency: 2,
+                ..Default::default()
+            },
         );
 
         let traces: Vec<_> = (0..10)
@@ -347,6 +369,58 @@ mod tests {
 
         let batch = runner.run_batch(&traces).await;
         assert_eq!(batch.succeeded(), 10);
+    }
+
+    #[tokio::test]
+    async fn regression_triggers_rollback() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(DeterministicStrategyPlanner::default()),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig {
+                concurrency: 4,
+                auto_rollback: true,
+            },
+        );
+
+        // Good trace first -- establishes baseline strategy
+        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let r1 = runner.run_cycle(&good).await.unwrap();
+        let v_after_good = r1.strategy.version;
+
+        // Bad trace triggers regression
+        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let r2 = runner.run_cycle(&bad).await.unwrap();
+
+        // Should detect regression
+        assert!(r2.comparison.is_some());
+        assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);
+        // After rollback, version should be <= v_after_good
+        assert!(r2.strategy.version <= v_after_good);
+    }
+
+    #[tokio::test]
+    async fn no_rollback_when_disabled() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir); // default config: auto_rollback: false
+
+        // Good trace
+        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let r1 = runner.run_cycle(&good).await.unwrap();
+        let v_after_good = r1.strategy.version;
+
+        // Bad trace
+        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let r2 = runner.run_cycle(&bad).await.unwrap();
+
+        // Regression detected but no rollback
+        assert!(r2.comparison.is_some());
+        assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);
+        // Version should be >= v_after_good (no rollback happened)
+        assert!(r2.strategy.version >= v_after_good);
     }
 
     #[tokio::test]

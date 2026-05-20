@@ -3,6 +3,9 @@ use chrono::{Duration, Utc};
 use cruxx_improve::CruxId;
 use praxis_core::reward::{Reward, RewardAccumulator, RewardError, Trend, TrendDirection};
 
+const IMPROVING_SLOPE_THRESHOLD: f32 = 0.01;
+const DECLINING_SLOPE_THRESHOLD: f32 = -0.01;
+
 #[derive(Debug, Default)]
 pub struct InMemoryRewardStore {
     rewards: Vec<Reward>,
@@ -75,9 +78,9 @@ impl RewardAccumulator for InMemoryRewardStore {
             (n * sum_xy - sum_x * sum_y) / denom
         };
 
-        let direction = if slope > 0.01 {
+        let direction = if slope > IMPROVING_SLOPE_THRESHOLD {
             TrendDirection::Improving
-        } else if slope < -0.01 {
+        } else if slope < DECLINING_SLOPE_THRESHOLD {
             TrendDirection::Declining
         } else {
             TrendDirection::Stable

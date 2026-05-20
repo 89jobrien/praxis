@@ -7,6 +7,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Mutex;
 
+const IMPROVING_SLOPE_THRESHOLD: f32 = 0.01;
+const DECLINING_SLOPE_THRESHOLD: f32 = -0.01;
+
 pub struct SqliteRewardStore {
     conn: Mutex<Connection>,
 }
@@ -176,9 +179,9 @@ impl RewardAccumulator for SqliteRewardStore {
             (n * sum_xy - sum_x * sum_y) / denom
         };
 
-        let direction = if slope > 0.01 {
+        let direction = if slope > IMPROVING_SLOPE_THRESHOLD {
             TrendDirection::Improving
-        } else if slope < -0.01 {
+        } else if slope < DECLINING_SLOPE_THRESHOLD {
             TrendDirection::Declining
         } else {
             TrendDirection::Stable

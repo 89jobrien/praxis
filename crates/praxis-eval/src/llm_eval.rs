@@ -42,16 +42,12 @@ impl LlmEvaluator {
     pub fn config(&self) -> &LlmEvaluatorConfig {
         &self.config
     }
-}
 
-#[async_trait]
-impl Evaluator for LlmEvaluator {
-    async fn evaluate(
+    fn build_prompt(
         &self,
         trace: &Crux<serde_json::Value>,
-    ) -> Result<Evaluation, EvaluationError> {
-        let metrics = cruxx_improve::TraceMetrics::extract(trace);
-
+        metrics: &cruxx_improve::TraceMetrics,
+    ) -> serde_json::Value {
         let step_summaries: Vec<serde_json::Value> = trace
             .steps
             .iter()
@@ -64,7 +60,7 @@ impl Evaluator for LlmEvaluator {
             })
             .collect();
 
-        let prompt = serde_json::json!({
+        serde_json::json!({
             "model": self.config.model,
             "messages": [{
                 "role": "user",
@@ -76,7 +72,41 @@ impl Evaluator for LlmEvaluator {
                     serde_json::to_string_pretty(&step_summaries).unwrap_or_default()
                 )
             }]
-        });
+        })
+    }
+
+    fn parse_response(
+        &self,
+        text: &str,
+        trace: &Crux<serde_json::Value>,
+        metrics: cruxx_improve::TraceMetrics,
+    ) -> Option<Evaluation> {
+        serde_json::from_str::<LlmResponse>(text).ok().map(|llm| {
+            let findings = llm
+                .findings
+                .into_iter()
+                .take(self.config.max_findings)
+                .collect();
+            Evaluation {
+                trace_id: trace.id.clone(),
+                agent: trace.agent.clone(),
+                score: llm.score.clamp(0.0, 1.0),
+                findings,
+                metrics,
+                evaluated_at: Utc::now(),
+            }
+        })
+    }
+}
+
+#[async_trait]
+impl Evaluator for LlmEvaluator {
+    async fn evaluate(
+        &self,
+        trace: &Crux<serde_json::Value>,
+    ) -> Result<Evaluation, EvaluationError> {
+        let metrics = cruxx_improve::TraceMetrics::extract(trace);
+        let prompt = self.build_prompt(trace, &metrics);
 
         let result = self
             .client
@@ -89,23 +119,9 @@ impl Evaluator for LlmEvaluator {
         match result {
             Ok(resp) => {
                 let text = resp.text().await.unwrap_or_default();
-                match serde_json::from_str::<LlmResponse>(&text) {
-                    Ok(llm) => {
-                        let findings = llm
-                            .findings
-                            .into_iter()
-                            .take(self.config.max_findings)
-                            .collect();
-                        Ok(Evaluation {
-                            trace_id: trace.id.clone(),
-                            agent: trace.agent.clone(),
-                            score: llm.score.clamp(0.0, 1.0),
-                            findings,
-                            metrics,
-                            evaluated_at: Utc::now(),
-                        })
-                    }
-                    Err(_) => self.fallback.evaluate(trace).await,
+                match self.parse_response(&text, trace, metrics) {
+                    Some(eval) => Ok(eval),
+                    None => self.fallback.evaluate(trace).await,
                 }
             }
             Err(_) => self.fallback.evaluate(trace).await,

@@ -3,6 +3,11 @@ use chrono::Utc;
 use cruxx_improve::{Crux, StepStatus, TraceMetrics};
 use praxis_core::evaluator::{Evaluation, EvaluationError, Evaluator};
 
+const LOW_SUCCESS_RATE_THRESHOLD: f32 = 0.5;
+const LOW_CONFIDENCE_THRESHOLD: f32 = 0.4;
+const HIGH_ERROR_RATE_THRESHOLD: f32 = 0.3;
+const LOW_SPECULATION_HIT_RATE_THRESHOLD: f32 = 0.3;
+
 /// Evaluator that generates findings from trace metrics.
 ///
 /// Produces actionable findings when it detects problems in the trace:
@@ -18,7 +23,7 @@ impl Evaluator for MetricsEvaluator {
         let metrics = TraceMetrics::extract(trace);
         let mut findings = Vec::new();
 
-        if metrics.success_rate < 0.5 {
+        if metrics.success_rate < LOW_SUCCESS_RATE_THRESHOLD {
             let failed: Vec<&str> = trace
                 .steps
                 .iter()
@@ -32,7 +37,7 @@ impl Evaluator for MetricsEvaluator {
             ));
         }
 
-        if metrics.avg_confidence < 0.4 {
+        if metrics.avg_confidence < LOW_CONFIDENCE_THRESHOLD {
             findings.push(format!(
                 "low average confidence ({:.2}): agent is uncertain",
                 metrics.avg_confidence
@@ -41,7 +46,7 @@ impl Evaluator for MetricsEvaluator {
 
         if metrics.error_count > 0 && metrics.step_count > 0 {
             let error_rate = metrics.error_count as f32 / metrics.step_count as f32;
-            if error_rate > 0.3 {
+            if error_rate > HIGH_ERROR_RATE_THRESHOLD {
                 findings.push(format!(
                     "high error rate ({:.0}%): {} errors in {} steps",
                     error_rate * 100.0,
@@ -51,7 +56,9 @@ impl Evaluator for MetricsEvaluator {
             }
         }
 
-        if metrics.speculation_count > 0 && metrics.speculation_hit_rate < 0.3 {
+        if metrics.speculation_count > 0
+            && metrics.speculation_hit_rate < LOW_SPECULATION_HIT_RATE_THRESHOLD
+        {
             findings.push(format!(
                 "speculation hit rate low ({:.0}%): speculative branches mostly fail",
                 metrics.speculation_hit_rate * 100.0

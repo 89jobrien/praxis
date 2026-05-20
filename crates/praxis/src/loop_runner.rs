@@ -156,6 +156,41 @@ impl ImprovementLoop {
         let current = { self.store.lock().await.current() };
         let improvements = self.planner.propose(&evaluation, &trend, &current).await?;
 
+        let (applied, deferred, rejected, strategy) =
+            self.classify_improvements(improvements, current).await?;
+
+        let comparison = self.compare_and_store_trace(trace).await;
+
+        // Auto-export strategy if configured
+        if let Some(ref path) = self.config.export_path {
+            crate::strategy_export::export_strategy(&strategy, path)?;
+        }
+
+        Ok(CycleResult {
+            evaluation,
+            applied,
+            deferred,
+            rejected,
+            strategy,
+            comparison,
+        })
+    }
+
+    /// Classify proposed improvements by routing each through policy
+    /// validation and the approval gate.
+    async fn classify_improvements(
+        &self,
+        improvements: Vec<Improvement>,
+        current: Strategy,
+    ) -> Result<
+        (
+            Vec<Improvement>,
+            Vec<Improvement>,
+            Vec<Improvement>,
+            Strategy,
+        ),
+        LoopError,
+    > {
         let mut applied = Vec::new();
         let mut deferred = Vec::new();
         let mut rejected = Vec::new();
@@ -186,6 +221,12 @@ impl ImprovementLoop {
             }
         }
 
+        Ok((applied, deferred, rejected, strategy))
+    }
+
+    /// Compare the current trace against the last trace for the same agent,
+    /// then store the current trace for future comparisons.
+    async fn compare_and_store_trace(&self, trace: &Crux<serde_json::Value>) -> Option<Comparison> {
         let comparison = {
             let traces = self.last_traces.lock().await;
             traces
@@ -198,19 +239,7 @@ impl ImprovementLoop {
             traces.insert(trace.agent.clone(), trace.clone());
         }
 
-        // Auto-export strategy if configured
-        if let Some(ref path) = self.config.export_path {
-            crate::strategy_export::export_strategy(&strategy, path)?;
-        }
-
-        Ok(CycleResult {
-            evaluation,
-            applied,
-            deferred,
-            rejected,
-            strategy,
-            comparison,
-        })
+        comparison
     }
 
     /// Run improvement cycles for multiple traces concurrently.
@@ -229,6 +258,7 @@ impl ImprovementLoop {
                 let trace = trace.clone();
 
                 tokio::spawn(async move {
+                    // Safety: semaphore is owned by this method, never closed
                     let _permit = sem.acquire().await.unwrap();
                     loop_clone.run_cycle(&trace).await
                 })

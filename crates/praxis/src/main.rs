@@ -1,6 +1,6 @@
 use chrono::Utc;
 use cruxx_improve::{Crux, CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus, Verdict};
-use praxis::{ImprovementLoop, LoopConfig};
+use praxis::{AutoApproveGate, ImprovementLoop, LoopConfig};
 use praxis_core::StrategyStore as _;
 use praxis_eval::{DeterministicStrategyPlanner, MetricsEvaluator};
 use praxis_store::{FileStrategyStore, InMemoryRewardStore};
@@ -68,6 +68,7 @@ async fn main() {
             concurrency: 4,
             ..Default::default()
         },
+        Box::new(AutoApproveGate),
     );
 
     // === Sequential demo: 5 sessions with improving traces ===

@@ -25,6 +25,7 @@ pub struct CycleResult {
     pub evaluation: Evaluation,
     pub applied: Vec<Improvement>,
     pub deferred: Vec<Improvement>,
+    pub rejected: Vec<Improvement>,
     pub strategy: Strategy,
     pub comparison: Option<Comparison>,
 }
@@ -94,6 +95,7 @@ impl ImprovementLoop {
             rewards,
             policy,
             LoopConfig::default(),
+            Box::new(AutoApproveGate),
         )
     }
 
@@ -104,6 +106,7 @@ impl ImprovementLoop {
         rewards: Box<dyn RewardAccumulator>,
         policy: Box<dyn StrategyPolicy>,
         config: LoopConfig,
+        approval_gate: Box<dyn ApprovalGate>,
     ) -> Self {
         Self {
             evaluator: Arc::from(evaluator),
@@ -111,7 +114,7 @@ impl ImprovementLoop {
             store: Arc::new(Mutex::new(store)),
             rewards: Arc::new(Mutex::new(rewards)),
             policy: Arc::from(policy),
-            approval_gate: Arc::new(AutoApproveGate),
+            approval_gate: Arc::from(approval_gate),
             last_traces: Arc::new(Mutex::new(std::collections::HashMap::new())),
             config,
         }
@@ -151,6 +154,7 @@ impl ImprovementLoop {
 
         let mut applied = Vec::new();
         let mut deferred = Vec::new();
+        let mut rejected = Vec::new();
         let mut strategy = current;
 
         for improvement in improvements {
@@ -163,7 +167,9 @@ impl ImprovementLoop {
                         strategy = store.apply(&improvement.diff);
                         applied.push(improvement);
                     }
-                    ApprovalDecision::Rejected => { /* drop silently */ }
+                    ApprovalDecision::Rejected => {
+                        rejected.push(improvement);
+                    }
                     ApprovalDecision::Deferred => {
                         deferred.push(improvement);
                     }
@@ -200,6 +206,7 @@ impl ImprovementLoop {
             evaluation,
             applied,
             deferred,
+            rejected,
             strategy,
             comparison,
         })
@@ -358,6 +365,7 @@ mod tests {
                 concurrency: 2,
                 ..Default::default()
             },
+            Box::new(AutoApproveGate),
         );
         let traces: Vec<_> = (0..10)
             .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
@@ -380,6 +388,7 @@ mod tests {
                 concurrency: 4,
                 export_path: Some(export_path.clone()),
             },
+            Box::new(AutoApproveGate),
         );
         let trace = make_trace("test", 0.5, StepStatus::Ok);
         runner.run_cycle(&trace).await.unwrap();
@@ -404,6 +413,33 @@ mod tests {
         assert!(result.comparison.is_some());
     }
 
+    struct DeferAllGate;
+
+    #[async_trait]
+    impl ApprovalGate for DeferAllGate {
+        async fn review(&self, _: &Improvement) -> ApprovalDecision {
+            ApprovalDecision::Deferred
+        }
+    }
+
+    #[tokio::test]
+    async fn with_config_accepts_approval_gate() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(PromptPatchPlanner),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig::default(),
+            Box::new(DeferAllGate),
+        );
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let result = runner.run_cycle(&trace).await.unwrap();
+        assert!(result.applied.is_empty());
+        assert!(!result.deferred.is_empty());
+    }
+
     struct RejectAllGate;
 
     #[async_trait]
@@ -413,22 +449,69 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn approval_gate_can_reject() {
-        let dir = TempDir::new().unwrap();
-        let runner = ImprovementLoop::new(
+    /// Planner that always proposes a prompt_patch, triggering approval.
+    struct PromptPatchPlanner;
+
+    #[async_trait]
+    impl StrategyPlanner for PromptPatchPlanner {
+        async fn propose(
+            &self,
+            evaluation: &Evaluation,
+            _trend: &praxis_core::reward::Trend,
+            _current: &Strategy,
+        ) -> Result<Vec<Improvement>, praxis_core::strategy::PlannerError> {
+            use cruxx_improve::{ImprovementKind, PromptPatch};
+            Ok(vec![Improvement {
+                id: CruxId::new(),
+                kind: ImprovementKind::PromptTemplate,
+                target: evaluation.agent.clone(),
+                diff: cruxx_improve::StrategyDiff {
+                    prompt_patches: vec![PromptPatch {
+                        agent: evaluation.agent.clone(),
+                        section: "system".into(),
+                        content: "be more helpful".into(),
+                    }],
+                    ..Default::default()
+                },
+                confidence: 0.8,
+                evidence: vec!["test evidence".into()],
+                proposed_at: chrono::Utc::now(),
+            }])
+        }
+    }
+
+    /// Helper to build a loop whose improvements require approval and get rejected.
+    fn make_rejectable_loop(dir: &TempDir) -> ImprovementLoop {
+        ImprovementLoop::new(
             Box::new(StubEvaluator),
-            Box::new(DeterministicStrategyPlanner {
-                low_score_threshold: 0.6,
-                improvement_confidence: 0.7,
-            }),
+            Box::new(PromptPatchPlanner),
             Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
             Box::new(InMemoryRewardStore::new()),
             Box::new(DefaultStrategyPolicy::default()),
         )
-        .with_approval_gate(Box::new(RejectAllGate));
+        .with_approval_gate(Box::new(RejectAllGate))
+    }
+
+    #[tokio::test]
+    async fn approval_gate_can_reject() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_rejectable_loop(&dir);
         let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
         let result = runner.run_cycle(&trace).await.unwrap();
+        assert!(result.applied.is_empty());
+        assert!(result.deferred.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_improvements_recorded_in_cycle_result() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_rejectable_loop(&dir);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let result = runner.run_cycle(&trace).await.unwrap();
+        assert!(
+            !result.rejected.is_empty(),
+            "rejected improvements should be recorded, not silently dropped"
+        );
         assert!(result.applied.is_empty());
         assert!(result.deferred.is_empty());
     }

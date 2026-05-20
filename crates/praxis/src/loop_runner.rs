@@ -19,6 +19,8 @@ pub enum LoopError {
     Reward(#[from] praxis_core::reward::RewardError),
     #[error("strategy validation failed: {0}")]
     Policy(#[from] StrategyViolation),
+    #[error("strategy export failed: {0}")]
+    Export(#[from] std::io::Error),
 }
 
 pub struct CycleResult {
@@ -198,11 +200,7 @@ impl ImprovementLoop {
 
         // Auto-export strategy if configured
         if let Some(ref path) = self.config.export_path {
-            crate::strategy_export::export_strategy(&strategy, path).map_err(|e| {
-                LoopError::Evaluation(praxis_core::evaluator::EvaluationError::Failed(format!(
-                    "strategy export failed: {e}"
-                )))
-            })?;
+            crate::strategy_export::export_strategy(&strategy, path)?;
         }
 
         Ok(CycleResult {
@@ -216,6 +214,10 @@ impl ImprovementLoop {
     }
 
     /// Run improvement cycles for multiple traces concurrently.
+    ///
+    /// NOTE: With an interactive `ApprovalGate` (e.g. `CliApprovalGate`),
+    /// batch processing will effectively serialize on human input since
+    /// each cycle awaits the gate's `review()` call sequentially.
     pub async fn run_batch(&self, traces: &[Crux<serde_json::Value>]) -> BatchResult {
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
 

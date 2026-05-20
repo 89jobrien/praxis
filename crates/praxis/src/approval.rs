@@ -65,16 +65,23 @@ impl Default for CliApprovalGate {
 impl ApprovalGate for CliApprovalGate {
     async fn review(&self, improvement: &Improvement) -> ApprovalDecision {
         let mut writer = self.writer.lock().expect("writer lock poisoned");
-        writeln!(writer, "Improvement proposed: {:?}", improvement.kind).ok();
-        writeln!(writer, "  target: {}", improvement.target).ok();
-        writeln!(writer, "  confidence: {:.2}", improvement.confidence).ok();
-        writeln!(writer, "  evidence: {:?}", improvement.evidence).ok();
-        write!(writer, "  approve? [y/n/d]: ").ok();
-        writer.flush().ok();
+        if writeln!(writer, "Improvement proposed: {:?}", improvement.kind).is_err()
+            || writeln!(writer, "  target: {}", improvement.target).is_err()
+            || writeln!(writer, "  confidence: {:.2}", improvement.confidence).is_err()
+            || writeln!(writer, "  evidence: {:?}", improvement.evidence).is_err()
+            || write!(writer, "  approve? [y/n/d]: ").is_err()
+            || writer.flush().is_err()
+        {
+            eprintln!("warning: CLI approval gate failed to write prompt, deferring");
+            return ApprovalDecision::Deferred;
+        }
 
         let mut input = String::new();
         let mut reader = self.reader.lock().expect("reader lock poisoned");
-        reader.read_line(&mut input).ok();
+        if reader.read_line(&mut input).is_err() {
+            eprintln!("warning: CLI approval gate failed to read input, deferring");
+            return ApprovalDecision::Deferred;
+        }
         match input.trim() {
             "y" | "Y" | "yes" => ApprovalDecision::Approved,
             "n" | "N" | "no" => ApprovalDecision::Rejected,

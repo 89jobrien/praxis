@@ -230,6 +230,7 @@ fn demo_mode_from_args() -> DemoMode {
         }
     }
 }
+
 fn print_result(result: &praxis::CycleResult) {
     println!(
         "  score: {:.2}  |  success_rate: {:.0}%  |  avg_confidence: {:.2}",

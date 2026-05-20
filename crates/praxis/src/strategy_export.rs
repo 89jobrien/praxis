@@ -4,15 +4,18 @@ use std::path::Path;
 /// Exports the current strategy as a JSON file that braid can consume.
 /// The format is the raw `Strategy` struct serialized as pretty JSON.
 pub fn export_strategy(strategy: &Strategy, path: &Path) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(strategy)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let json = serde_json::to_string_pretty(strategy).map_err(json_to_io_error)?;
     std::fs::write(path, json)
 }
 
 /// Loads a strategy from a JSON file (e.g., exported by praxis for braid).
 pub fn load_strategy(path: &Path) -> std::io::Result<Strategy> {
     let data = std::fs::read_to_string(path)?;
-    serde_json::from_str(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_str(&data).map_err(json_to_io_error)
+}
+
+fn json_to_io_error(e: serde_json::Error) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
 #[cfg(test)]

@@ -30,6 +30,8 @@ enum Cmd {
     Build,
     /// Run the demo binary
     Demo,
+    /// Run the narrated live demo
+    LiveDemo,
     /// Pre-commit gate: fmt-check + clippy + test
     PreCommit,
 }
@@ -45,6 +47,7 @@ fn main() -> ExitCode {
         Cmd::FmtCheck => fmt_check(),
         Cmd::Build => build(),
         Cmd::Demo => demo(),
+        Cmd::LiveDemo => live_demo(),
         Cmd::PreCommit => pre_commit(),
     };
 
@@ -100,6 +103,9 @@ fn build() -> Result<(), ()> {
 
 fn demo() -> Result<(), ()> {
     cargo(&["run", "-p", "praxis"])
+}
+fn live_demo() -> Result<(), ()> {
+    cargo(&["run", "-p", "praxis", "--", "live-demo"])
 }
 
 fn step(name: &str, f: impl FnOnce() -> Result<(), ()>) -> Result<(), ()> {

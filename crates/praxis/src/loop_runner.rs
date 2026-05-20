@@ -599,6 +599,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn defer_then_approve_full_lifecycle() {
+        let dir = TempDir::new().unwrap();
+
+        // Phase 1: DeferAllGate — improvements accumulate in the deferred queue.
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(PromptPatchPlanner),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig::default(),
+            Box::new(DeferAllGate),
+        );
+
+        let trace = make_trace("lifecycle-agent", 0.3, StepStatus::Ok);
+        let result = runner.run_cycle(&trace).await.unwrap();
+
+        // Nothing was applied; one improvement was deferred.
+        assert!(result.applied.is_empty());
+        assert_eq!(result.deferred.len(), 1);
+        let pending = runner.pending_deferred().await;
+        assert_eq!(pending.len(), 1);
+
+        // Strategy is still at its initial version.
+        let strategy_before = runner.current_strategy().await;
+
+        // Phase 2: Swap gate to auto-approve and resubmit.
+        let runner = runner.with_approval_gate(Box::new(AutoApproveGate));
+        let decisions = runner.resubmit_deferred().await;
+
+        assert_eq!(decisions.len(), 1);
+        assert!(matches!(decisions[0], ApprovalDecision::Approved));
+
+        // Deferred queue is now empty.
+        assert!(runner.pending_deferred().await.is_empty());
+
+        // Strategy was advanced by the applied diff.
+        let strategy_after = runner.current_strategy().await;
+        assert!(
+            strategy_after.version > strategy_before.version,
+            "strategy version should advance after applying deferred improvements"
+        );
+    }
+
+    #[tokio::test]
     async fn rejected_improvements_recorded_in_cycle_result() {
         let dir = TempDir::new().unwrap();
         let runner = make_rejectable_loop(&dir);

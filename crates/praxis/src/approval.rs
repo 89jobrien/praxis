@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use async_trait::async_trait;
 use cruxx_improve::Improvement;
 
@@ -23,22 +25,56 @@ impl ApprovalGate for AutoApproveGate {
     }
 }
 
-/// Interactive CLI approval gate. Prints improvement details to stdout
-/// and reads y/n/d from stdin.
-pub struct CliApprovalGate;
+/// Interactive CLI approval gate. Prints improvement details and reads y/n/d.
+///
+/// Use `CliApprovalGate::new()` for real stdin/stdout, or
+/// `CliApprovalGate::with_io(reader, writer)` for testing.
+pub struct CliApprovalGate {
+    reader: std::sync::Mutex<Box<dyn std::io::BufRead + Send>>,
+    writer: std::sync::Mutex<Box<dyn std::io::Write + Send>>,
+}
+
+impl CliApprovalGate {
+    /// Create a gate that reads from stdin and writes to stdout.
+    pub fn new() -> Self {
+        Self {
+            reader: std::sync::Mutex::new(Box::new(std::io::BufReader::new(std::io::stdin()))),
+            writer: std::sync::Mutex::new(Box::new(std::io::stdout())),
+        }
+    }
+
+    /// Create a gate with custom I/O for testing.
+    pub fn with_io(
+        reader: Box<dyn std::io::BufRead + Send>,
+        writer: Box<dyn std::io::Write + Send>,
+    ) -> Self {
+        Self {
+            reader: std::sync::Mutex::new(reader),
+            writer: std::sync::Mutex::new(writer),
+        }
+    }
+}
+
+impl Default for CliApprovalGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl ApprovalGate for CliApprovalGate {
     async fn review(&self, improvement: &Improvement) -> ApprovalDecision {
-        println!("Improvement proposed: {:?}", improvement.kind);
-        println!("  target: {}", improvement.target);
-        println!("  confidence: {:.2}", improvement.confidence);
-        println!("  evidence: {:?}", improvement.evidence);
-        print!("  approve? [y/n/d]: ");
-        use std::io::Write;
-        std::io::stdout().flush().ok();
+        let mut writer = self.writer.lock().expect("writer lock poisoned");
+        writeln!(writer, "Improvement proposed: {:?}", improvement.kind).ok();
+        writeln!(writer, "  target: {}", improvement.target).ok();
+        writeln!(writer, "  confidence: {:.2}", improvement.confidence).ok();
+        writeln!(writer, "  evidence: {:?}", improvement.evidence).ok();
+        write!(writer, "  approve? [y/n/d]: ").ok();
+        writer.flush().ok();
+
         let mut input = String::new();
-        std::io::stdin().read_line(&mut input).ok();
+        let mut reader = self.reader.lock().expect("reader lock poisoned");
+        reader.read_line(&mut input).ok();
         match input.trim() {
             "y" | "Y" | "yes" => ApprovalDecision::Approved,
             "n" | "N" | "no" => ApprovalDecision::Rejected,
@@ -70,5 +106,41 @@ mod tests {
         let gate = AutoApproveGate;
         let decision = gate.review(&dummy_improvement()).await;
         assert_eq!(decision, ApprovalDecision::Approved);
+    }
+
+    #[tokio::test]
+    async fn cli_gate_approves_on_y() {
+        let input = std::io::Cursor::new(b"y\n".to_vec());
+        let output: Vec<u8> = Vec::new();
+        let gate = CliApprovalGate::with_io(Box::new(input), Box::new(output));
+        let decision = gate.review(&dummy_improvement()).await;
+        assert_eq!(decision, ApprovalDecision::Approved);
+    }
+
+    #[tokio::test]
+    async fn cli_gate_rejects_on_n() {
+        let input = std::io::Cursor::new(b"n\n".to_vec());
+        let output: Vec<u8> = Vec::new();
+        let gate = CliApprovalGate::with_io(Box::new(input), Box::new(output));
+        let decision = gate.review(&dummy_improvement()).await;
+        assert_eq!(decision, ApprovalDecision::Rejected);
+    }
+
+    #[tokio::test]
+    async fn cli_gate_defers_on_d() {
+        let input = std::io::Cursor::new(b"d\n".to_vec());
+        let output: Vec<u8> = Vec::new();
+        let gate = CliApprovalGate::with_io(Box::new(input), Box::new(output));
+        let decision = gate.review(&dummy_improvement()).await;
+        assert_eq!(decision, ApprovalDecision::Deferred);
+    }
+
+    #[tokio::test]
+    async fn cli_gate_defers_on_unknown_input() {
+        let input = std::io::Cursor::new(b"maybe\n".to_vec());
+        let output: Vec<u8> = Vec::new();
+        let gate = CliApprovalGate::with_io(Box::new(input), Box::new(output));
+        let decision = gate.review(&dummy_improvement()).await;
+        assert_eq!(decision, ApprovalDecision::Deferred);
     }
 }

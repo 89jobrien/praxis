@@ -77,6 +77,7 @@ pub struct ImprovementLoop {
     policy: Arc<dyn StrategyPolicy>,
     approval_gate: Arc<dyn ApprovalGate>,
     last_traces: Arc<Mutex<std::collections::HashMap<String, Crux<serde_json::Value>>>>,
+    deferred_queue: Arc<Mutex<Vec<Improvement>>>,
     config: LoopConfig,
 }
 
@@ -116,6 +117,7 @@ impl ImprovementLoop {
             policy: Arc::from(policy),
             approval_gate: Arc::from(approval_gate),
             last_traces: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            deferred_queue: Arc::new(Mutex::new(Vec::new())),
             config,
         }
     }
@@ -171,6 +173,7 @@ impl ImprovementLoop {
                         rejected.push(improvement);
                     }
                     ApprovalDecision::Deferred => {
+                        self.deferred_queue.lock().await.push(improvement.clone());
                         deferred.push(improvement);
                     }
                 }
@@ -241,6 +244,43 @@ impl ImprovementLoop {
         }
 
         BatchResult { results }
+    }
+
+    /// Return all deferred improvements awaiting re-review.
+    pub async fn pending_deferred(&self) -> Vec<Improvement> {
+        self.deferred_queue.lock().await.clone()
+    }
+
+    /// Re-submit all deferred improvements through the approval gate.
+    /// Approved items are applied to the store and removed from the queue.
+    /// Items that remain deferred stay in the queue.
+    /// Returns the decision for each item in submission order.
+    pub async fn resubmit_deferred(&self) -> Vec<ApprovalDecision> {
+        let items: Vec<Improvement> = {
+            let mut queue = self.deferred_queue.lock().await;
+            std::mem::take(&mut *queue)
+        };
+
+        let mut decisions = Vec::with_capacity(items.len());
+        let mut still_deferred = Vec::new();
+
+        for improvement in items {
+            let decision = self.approval_gate.review(&improvement).await;
+            match decision {
+                ApprovalDecision::Approved => {
+                    let mut store = self.store.lock().await;
+                    store.apply(&improvement.diff);
+                }
+                ApprovalDecision::Deferred => {
+                    still_deferred.push(improvement);
+                }
+                ApprovalDecision::Rejected => {}
+            }
+            decisions.push(decision);
+        }
+
+        *self.deferred_queue.lock().await = still_deferred;
+        decisions
     }
 
     pub async fn rollback(&self, version: u64) {
@@ -500,6 +540,62 @@ mod tests {
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(result.applied.is_empty());
         assert!(result.deferred.is_empty());
+    }
+
+    #[tokio::test]
+    async fn deferred_improvements_persist_across_cycles() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(PromptPatchPlanner),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig::default(),
+            Box::new(DeferAllGate),
+        );
+
+        // Cycle 1: improvement gets deferred
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let result = runner.run_cycle(&trace).await.unwrap();
+        assert!(!result.deferred.is_empty());
+
+        // Deferred queue persists
+        let pending = runner.pending_deferred().await;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].target, "test-agent");
+
+        // Cycle 2: another deferral accumulates
+        let trace2 = make_trace("test-agent", 0.4, StepStatus::Ok);
+        runner.run_cycle(&trace2).await.unwrap();
+        let pending = runner.pending_deferred().await;
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn resubmit_deferred_applies_when_approved() {
+        let dir = TempDir::new().unwrap();
+        // Start with DeferAllGate to accumulate deferred items
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(PromptPatchPlanner),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig::default(),
+            Box::new(DeferAllGate),
+        );
+
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        runner.run_cycle(&trace).await.unwrap();
+        assert_eq!(runner.pending_deferred().await.len(), 1);
+
+        // Swap gate to auto-approve, then resubmit
+        let runner = runner.with_approval_gate(Box::new(AutoApproveGate));
+        let decisions = runner.resubmit_deferred().await;
+        assert_eq!(decisions.len(), 1);
+        assert!(matches!(decisions[0], ApprovalDecision::Approved));
+        assert!(runner.pending_deferred().await.is_empty());
     }
 
     #[tokio::test]

@@ -1,12 +1,14 @@
 [workspace]
 members = ["crates/*", "xtask"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/89jobrien/praxis"
+homepage = "https://github.com/89jobrien/praxis"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -16,4 +18,5 @@ thiserror = "2"
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
+tempfile = "3"
 cruxx-improve = { path = "../crux/crates/cruxx-improve" }

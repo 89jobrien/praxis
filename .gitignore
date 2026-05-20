@@ -3,6 +3,10 @@
 .pytest_cache/
 .ruff_cache/
 .venv/
+*.swp
+*.swo
+.idea/
+.vscode/
 
 # handoff-begin
 .ctx/*

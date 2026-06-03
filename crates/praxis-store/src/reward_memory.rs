@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use cruxx_improve::CruxId;
+use crux_improve::CruxId;
 use praxis_core::reward::{Reward, RewardAccumulator, RewardError, Trend, TrendDirection};
 
 const IMPROVING_SLOPE_THRESHOLD: f32 = 0.01;

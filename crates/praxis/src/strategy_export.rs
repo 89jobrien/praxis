@@ -1,4 +1,4 @@
-use cruxx_improve::Strategy;
+use crux_improve::Strategy;
 use std::path::Path;
 
 /// Exports the current strategy as a JSON file that braid can consume.

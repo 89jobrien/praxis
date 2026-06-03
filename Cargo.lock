@@ -185,13 +185,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "cruxx-core"
+name = "crux-domain"
+version = "0.2.6"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "crux-improve"
+version = "0.2.6"
+dependencies = [
+ "chrono",
+ "crux-planner",
+ "crux-runtime",
+ "crux-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "crux-planner"
+version = "0.2.6"
+dependencies = [
+ "crux-runtime",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "crux-runtime"
 version = "0.2.6"
 dependencies = [
  "anyhow",
  "chrono",
- "cruxx-domain",
- "cruxx-types",
+ "crux-domain",
+ "crux-types",
  "futures",
  "serde",
  "serde_json",
@@ -201,39 +233,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cruxx-domain"
-version = "0.2.6"
-dependencies = [
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "cruxx-improve"
-version = "0.2.6"
-dependencies = [
- "chrono",
- "cruxx-core",
- "cruxx-planner",
- "cruxx-types",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "cruxx-planner"
-version = "0.2.6"
-dependencies = [
- "cruxx-core",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "cruxx-types"
+name = "crux-types"
 version = "0.2.6"
 dependencies = [
  "chrono",
@@ -591,7 +591,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "cruxx-improve",
+ "crux-improve",
  "praxis-core",
  "praxis-eval",
  "praxis-store",
@@ -607,7 +607,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "cruxx-improve",
+ "crux-improve",
  "serde",
  "serde_json",
  "thiserror",
@@ -620,7 +620,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "cruxx-improve",
+ "crux-improve",
  "praxis-core",
  "serde_json",
  "tokio",
@@ -632,7 +632,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "cruxx-improve",
+ "crux-improve",
  "praxis-core",
  "serde",
  "serde_json",

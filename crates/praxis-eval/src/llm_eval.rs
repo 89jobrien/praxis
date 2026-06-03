@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use cruxx_improve::Crux;
+use crux_improve::Crux;
 use praxis_core::evaluator::{Evaluation, EvaluationError, Evaluator};
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +46,7 @@ impl LlmEvaluator {
     fn build_prompt(
         &self,
         trace: &Crux<serde_json::Value>,
-        metrics: &cruxx_improve::TraceMetrics,
+        metrics: &crux_improve::TraceMetrics,
     ) -> serde_json::Value {
         let step_summaries: Vec<serde_json::Value> = trace
             .steps
@@ -79,7 +79,7 @@ impl LlmEvaluator {
         &self,
         text: &str,
         trace: &Crux<serde_json::Value>,
-        metrics: cruxx_improve::TraceMetrics,
+        metrics: crux_improve::TraceMetrics,
     ) -> Option<Evaluation> {
         serde_json::from_str::<LlmResponse>(text).ok().map(|llm| {
             let findings = llm
@@ -105,7 +105,7 @@ impl Evaluator for LlmEvaluator {
         &self,
         trace: &Crux<serde_json::Value>,
     ) -> Result<Evaluation, EvaluationError> {
-        let metrics = cruxx_improve::TraceMetrics::extract(trace);
+        let metrics = crux_improve::TraceMetrics::extract(trace);
         let prompt = self.build_prompt(trace, &metrics);
 
         let result = self
@@ -132,7 +132,7 @@ impl Evaluator for LlmEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cruxx_improve::{CruxId, Step, StepKind, StepStatus};
+    use crux_improve::{CruxId, Step, StepKind, StepStatus};
 
     fn test_config() -> LlmEvaluatorConfig {
         LlmEvaluatorConfig {
@@ -161,7 +161,7 @@ mod tests {
                 error: None,
                 attempt: 1,
                 events: vec![],
-                metadata: Default::default(),
+                metadata: Default::default(), findings: vec![],
             }],
             children: vec![],
             started_at: Utc::now(),

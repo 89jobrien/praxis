@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use cruxx_improve::{Crux, TraceMetrics};
+use crux_improve::{Crux, TraceMetrics};
 use praxis_core::evaluator::{Evaluation, EvaluationError, Evaluator};
 
 pub struct StubEvaluator;
@@ -26,7 +26,7 @@ impl Evaluator for StubEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cruxx_improve::CruxId;
+    use crux_improve::CruxId;
 
     #[tokio::test]
     async fn stub_returns_metrics_score() {

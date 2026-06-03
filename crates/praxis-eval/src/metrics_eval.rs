@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use cruxx_improve::{Crux, StepStatus, TraceMetrics};
+use crux_improve::{Crux, StepStatus, TraceMetrics};
 use praxis_core::evaluator::{Evaluation, EvaluationError, Evaluator};
 
 const LOW_SUCCESS_RATE_THRESHOLD: f32 = 0.5;
@@ -79,7 +79,7 @@ impl Evaluator for MetricsEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cruxx_improve::{CruxId, Step, StepKind};
+    use crux_improve::{CruxId, Step, StepKind};
 
     fn step(name: &str, status: StepStatus, confidence: f32) -> Step {
         Step {
@@ -96,6 +96,7 @@ mod tests {
             attempt: 1,
             events: vec![],
             metadata: Default::default(),
+            findings: vec![],
         }
     }
 

@@ -1,4 +1,4 @@
-use cruxx_improve::{DefaultStrategyPolicy, StepStatus};
+use crux_improve::{DefaultStrategyPolicy, StepStatus};
 use praxis::{AutoApproveGate, ImprovementLoop, LoopConfig};
 use praxis_core::StrategyStore as _;
 use praxis_eval::{DeterministicStrategyPlanner, MetricsEvaluator};
@@ -14,7 +14,7 @@ const BATCH_CONCURRENCY: usize = 4;
 
 mod demo {
     use chrono::Utc;
-    use cruxx_improve::{Crux, CruxId, Step, StepKind, StepStatus, Verdict};
+    use crux_improve::{Crux, CruxId, Step, StepKind, StepStatus, Verdict};
 
     const REGRESSION_DELTA_THRESHOLD: f32 = -0.05;
 
@@ -42,6 +42,7 @@ mod demo {
                     attempt: 1,
                     events: vec![],
                     metadata: Default::default(),
+                    findings: vec![],
                 })
                 .collect(),
             children: vec![],

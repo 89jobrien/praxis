@@ -1,4 +1,4 @@
-use cruxx_improve::{Strategy, StrategyDiff};
+use crux_improve::{Strategy, StrategyDiff};
 use praxis_core::store::StrategyStore;
 use std::path::PathBuf;
 

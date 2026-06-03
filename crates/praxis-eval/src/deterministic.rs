@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use cruxx_improve::{CruxId, Improvement, ImprovementKind, Strategy, StrategyDiff};
+use crux_improve::{CruxId, Improvement, ImprovementKind, Strategy, StrategyDiff};
 use praxis_core::evaluator::Evaluation;
 use praxis_core::reward::Trend;
 use praxis_core::strategy::{PlannerError, StrategyPlanner};
@@ -59,7 +59,7 @@ impl StrategyPlanner for DeterministicStrategyPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cruxx_improve::TraceMetrics;
+    use crux_improve::TraceMetrics;
     use praxis_core::reward::TrendDirection;
 
     fn dummy_metrics(score: f32) -> TraceMetrics {

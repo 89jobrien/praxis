@@ -8,7 +8,7 @@ description = "Evaluator and planner adapters for praxis"
 
 [dependencies]
 praxis-core = { path = "../praxis-core" }
-cruxx-improve = { workspace = true }
+crux-improve = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }

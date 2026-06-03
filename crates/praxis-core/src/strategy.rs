@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use cruxx_improve::{Improvement, Strategy};
+use crux_improve::{Improvement, Strategy};
 
 use crate::evaluator::Evaluation;
 use crate::reward::Trend;

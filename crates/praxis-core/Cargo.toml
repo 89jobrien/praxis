@@ -7,7 +7,7 @@ license.workspace = true
 description = "Port traits for the praxis self-improving runtime"
 
 [dependencies]
-cruxx-improve = { workspace = true }
+crux-improve = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

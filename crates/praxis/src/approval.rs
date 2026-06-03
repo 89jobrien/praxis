@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use async_trait::async_trait;
-use cruxx_improve::Improvement;
+use crux_improve::Improvement;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalDecision {
@@ -94,7 +94,7 @@ impl ApprovalGate for CliApprovalGate {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use cruxx_improve::{CruxId, ImprovementKind, StrategyDiff};
+    use crux_improve::{CruxId, ImprovementKind, StrategyDiff};
 
     fn dummy_improvement() -> Improvement {
         Improvement {

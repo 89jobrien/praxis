@@ -1,4 +1,4 @@
-use cruxx_improve::{Strategy, StrategyDiff};
+use crux_improve::{Strategy, StrategyDiff};
 
 pub trait StrategyStore: Send + Sync {
     fn current(&self) -> Strategy;

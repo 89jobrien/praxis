@@ -1,5 +1,5 @@
 use crate::approval::{ApprovalDecision, ApprovalGate, AutoApproveGate};
-use cruxx_improve::{
+use crux_improve::{
     Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
 };
 use praxis_core::evaluator::{Evaluation, Evaluator};
@@ -326,7 +326,7 @@ mod tests {
     use crate::approval::ApprovalDecision;
     use async_trait::async_trait;
     use chrono::Utc;
-    use cruxx_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus};
+    use crux_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus};
     use praxis_eval::{DeterministicStrategyPlanner, StubEvaluator};
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
@@ -350,6 +350,7 @@ mod tests {
                 attempt: 1,
                 events: vec![],
                 metadata: Default::default(),
+                findings: vec![],
             }],
             children: vec![],
             started_at: Utc::now(),
@@ -532,12 +533,12 @@ mod tests {
             _trend: &praxis_core::reward::Trend,
             _current: &Strategy,
         ) -> Result<Vec<Improvement>, praxis_core::strategy::PlannerError> {
-            use cruxx_improve::{ImprovementKind, PromptPatch};
+            use crux_improve::{ImprovementKind, PromptPatch};
             Ok(vec![Improvement {
                 id: CruxId::new(),
                 kind: ImprovementKind::PromptTemplate,
                 target: evaluation.agent.clone(),
-                diff: cruxx_improve::StrategyDiff {
+                diff: crux_improve::StrategyDiff {
                     prompt_patches: vec![PromptPatch {
                         agent: evaluation.agent.clone(),
                         section: "system".into(),

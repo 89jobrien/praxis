@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use cruxx_improve::{Crux, CruxId, TraceMetrics};
+use crux_improve::{Crux, CruxId, TraceMetrics};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

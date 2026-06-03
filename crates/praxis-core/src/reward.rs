@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use cruxx_improve::CruxId;
+use crux_improve::CruxId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

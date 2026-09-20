@@ -1,8 +1,8 @@
 use crux_improve::{DefaultStrategyPolicy, StepStatus};
-use praxis::{AutoApproveGate, ImprovementLoop, LoopConfig};
+use praxis::{AutoApproveGate, ImprovementLoop, IngestionReport, LoopConfig, ingest_traces};
 use praxis_core::StrategyStore as _;
 use praxis_eval::{DeterministicStrategyPlanner, MetricsEvaluator};
-use praxis_store::{FileStrategyStore, InMemoryRewardStore};
+use praxis_store::{FileIngestionLedger, FileStrategyStore, FileTraceSource, InMemoryRewardStore};
 use std::{
     env,
     path::{Path, PathBuf},
@@ -164,10 +164,52 @@ enum DemoMode {
     Live,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IngestArgs {
+    strategy_path: PathBuf,
+    roots: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CliAction {
+    Run(DemoMode),
+    Ingest(IngestArgs),
+    Help,
+}
+
 #[tokio::main]
 async fn main() {
-    let mode = demo_mode_from_args();
+    let action = match parse_demo_args(env::args().skip(1)) {
+        Ok(action) => action,
+        Err(message) => {
+            eprintln!("{message}");
+            eprintln!();
+            print_usage();
+            std::process::exit(2);
+        }
+    };
 
+    match action {
+        CliAction::Run(mode) => run_demo(mode).await,
+        CliAction::Ingest(args) => match run_ingest(args).await {
+            Ok(report) => {
+                print_ingestion_report(&report);
+                if ingestion_exit_failed(&report) {
+                    std::process::exit(1);
+                }
+            }
+            Err(message) => {
+                eprintln!("praxis ingest failed: {message}");
+                std::process::exit(1);
+            }
+        },
+        CliAction::Help => {
+            print_usage();
+        }
+    }
+}
+
+async fn run_demo(mode: DemoMode) {
     match mode {
         DemoMode::Standard => println!("praxis -- self-improving agent runtime demo\n"),
         DemoMode::Live => {
@@ -198,6 +240,65 @@ async fn main() {
     run_sequential_demo(&loop_runner, mode).await;
     run_batch_demo(&loop_runner).await;
     print_strategy_history(&strategy_path);
+}
+
+async fn run_ingest(args: IngestArgs) -> Result<IngestionReport, String> {
+    let ledger_path = ingestion_ledger_path(&args.strategy_path);
+    let store = FileStrategyStore::open(args.strategy_path).map_err(|error| error.to_string())?;
+    let mut ledger = FileIngestionLedger::open(ledger_path).map_err(|error| error.to_string())?;
+    let source = FileTraceSource::new(args.roots);
+    let loop_runner = ImprovementLoop::with_config(
+        Box::new(MetricsEvaluator),
+        Box::new(DeterministicStrategyPlanner {
+            low_score_threshold: LOW_SCORE_THRESHOLD,
+            improvement_confidence: IMPROVEMENT_CONFIDENCE,
+        }),
+        Box::new(store),
+        Box::new(InMemoryRewardStore::new()),
+        Box::new(DefaultStrategyPolicy::default()),
+        LoopConfig {
+            concurrency: BATCH_CONCURRENCY,
+            ..Default::default()
+        },
+        Box::new(AutoApproveGate),
+    );
+
+    ingest_traces(&loop_runner, &source, &mut ledger)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn ingestion_ledger_path(strategy_path: &Path) -> PathBuf {
+    let mut path = strategy_path.as_os_str().to_os_string();
+    path.push(".ingested.json");
+    PathBuf::from(path)
+}
+
+fn print_ingestion_report(report: &IngestionReport) {
+    for rejected in &report.rejected {
+        eprintln!("[rejected] {}: {}", rejected.source, rejected.reason);
+    }
+    for failure in &report.failures {
+        eprintln!(
+            "[failed] {} ({}): {}",
+            failure.source, failure.trace_id, failure.error
+        );
+    }
+    println!(
+        "scanned={} ignored={} discovered={} ingested={} previous={} duplicates={} rejected={} failed={}",
+        report.scanned_files,
+        report.ignored_files,
+        report.discovered_traces,
+        report.ingested_traces,
+        report.previously_ingested,
+        report.duplicate_ids,
+        report.rejected.len(),
+        report.failures.len(),
+    );
+}
+
+fn ingestion_exit_failed(report: &IngestionReport) -> bool {
+    report.discovered_traces == 0 || !report.failures.is_empty()
 }
 
 async fn run_sequential_demo(runner: &ImprovementLoop, mode: DemoMode) {
@@ -349,15 +450,131 @@ fn print_strategy_history(path: &Path) {
     }
 }
 
-fn demo_mode_from_args() -> DemoMode {
-    let mut args = env::args().skip(1);
-    match args.next().as_deref() {
-        None => DemoMode::Standard,
-        Some("live") | Some("live-demo") | Some("--live") => DemoMode::Live,
-        Some(arg) => {
-            eprintln!("unknown demo argument: {arg}");
-            eprintln!("usage: praxis [live-demo]");
-            std::process::exit(2);
+fn parse_demo_args<I, S>(args: I) -> Result<CliAction, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args: Vec<String> = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_owned())
+        .collect();
+
+    match args.as_slice() {
+        [] => Ok(CliAction::Run(DemoMode::Standard)),
+        [arg] if matches!(arg.as_str(), "-h" | "--help" | "help") => Ok(CliAction::Help),
+        [command, rest @ ..] if command == "ingest" => {
+            parse_ingest_args(rest).map(CliAction::Ingest)
         }
+        [arg] if matches!(arg.as_str(), "live" | "live-demo" | "--live") => {
+            Ok(CliAction::Run(DemoMode::Live))
+        }
+        [arg] => Err(format!("unknown demo argument: {arg}")),
+        [first, second, ..] => Err(format!(
+            "unexpected extra arguments after {first}: {second}"
+        )),
+    }
+}
+
+fn parse_ingest_args(args: &[String]) -> Result<IngestArgs, String> {
+    let [flag, strategy, roots @ ..] = args else {
+        return Err("ingest requires --strategy <file> and at least one root".into());
+    };
+    if flag != "--strategy" {
+        return Err(format!("unknown ingest option: {flag}"));
+    }
+    if strategy.starts_with('-') {
+        return Err("--strategy requires a file path".into());
+    }
+    if roots.is_empty() {
+        return Err("ingest requires at least one root".into());
+    }
+    if let Some(option) = roots.iter().find(|root| root.starts_with('-')) {
+        return Err(format!("unknown ingest option: {option}"));
+    }
+
+    Ok(IngestArgs {
+        strategy_path: PathBuf::from(strategy),
+        roots: roots.iter().map(PathBuf::from).collect(),
+    })
+}
+
+fn print_usage() {
+    println!("usage: praxis [live-demo]");
+    println!("       praxis ingest --strategy <file> <root>...");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CliAction, DemoMode, IngestArgs, ingestion_exit_failed, parse_demo_args};
+    use praxis::IngestionReport;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parse_demo_args_defaults_to_standard_mode() {
+        assert_eq!(
+            parse_demo_args(Vec::<String>::new()),
+            Ok(CliAction::Run(DemoMode::Standard))
+        );
+    }
+
+    #[test]
+    fn parse_demo_args_accepts_live_aliases() {
+        for arg in ["live", "live-demo", "--live"] {
+            assert_eq!(parse_demo_args([arg]), Ok(CliAction::Run(DemoMode::Live)));
+        }
+    }
+
+    #[test]
+    fn parse_demo_args_supports_help_flags() {
+        for arg in ["-h", "--help", "help"] {
+            assert_eq!(parse_demo_args([arg]), Ok(CliAction::Help));
+        }
+    }
+
+    #[test]
+    fn parse_demo_args_rejects_unknown_argument() {
+        let error = parse_demo_args(["--nope"]).unwrap_err();
+        assert!(error.contains("--nope"));
+    }
+
+    #[test]
+    fn parse_demo_args_rejects_extra_arguments() {
+        let error = parse_demo_args(["live-demo", "extra"]).unwrap_err();
+        assert!(error.contains("unexpected extra arguments"));
+    }
+
+    #[test]
+    fn parse_demo_args_accepts_ingest_command() {
+        assert_eq!(
+            parse_demo_args(["ingest", "--strategy", "state.json", "traces-a", "traces-b",]),
+            Ok(CliAction::Ingest(IngestArgs {
+                strategy_path: PathBuf::from("state.json"),
+                roots: vec![PathBuf::from("traces-a"), PathBuf::from("traces-b")],
+            }))
+        );
+    }
+
+    #[test]
+    fn parse_demo_args_rejects_incomplete_ingest_command() {
+        for args in [
+            vec!["ingest"],
+            vec!["ingest", "--strategy"],
+            vec!["ingest", "--strategy", "state.json"],
+            vec!["ingest", "--unknown", "state.json", "traces"],
+        ] {
+            assert!(parse_demo_args(args).is_err());
+        }
+    }
+
+    #[test]
+    fn ingestion_exit_status_rejects_empty_scan() {
+        assert!(ingestion_exit_failed(&IngestionReport::default()));
+
+        let report = IngestionReport {
+            discovered_traces: 1,
+            ..IngestionReport::default()
+        };
+        assert!(!ingestion_exit_failed(&report));
     }
 }

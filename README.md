@@ -77,6 +77,28 @@ and score math for each cycle:
 cargo xtask live-demo
 ```
 
+## Ingesting real traces
+
+Crux can save replayable `Crux<Value>` traces that Praxis discovers and
+evaluates in a one-shot local scan:
+
+```bash
+mkdir -p traces .praxis
+crux run pipeline.crux --save-trace traces/run-001.json
+cargo run -p praxis -- ingest \
+  --strategy .praxis/strategy-history.json \
+  traces
+```
+
+Scan roots are always explicit and may be files or directories. Directory scans
+are recursive, do not follow symbolic links, and inspect JSON files up to 16 MiB.
+Praxis accepts the raw serde format written by `crux run --save-trace`; the
+presentation format returned by `Crux::to_trace_json` is not replayable.
+
+Processed trace IDs are stored beside the strategy history in
+`<strategy-file>.ingested.json`. Re-running the same command skips those IDs,
+while failed traces remain eligible for retry.
+
 ### Regression finding
 
 Session 5 is an intentional regression fixture in the demo trace data. The

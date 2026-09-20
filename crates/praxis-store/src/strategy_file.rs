@@ -2,12 +2,41 @@ use crux_improve::{Strategy, StrategyDiff};
 use praxis_core::store::StrategyStore;
 use std::path::PathBuf;
 
+#[derive(Debug)]
 pub struct FileStrategyStore {
     pub(crate) path: PathBuf,
     snapshots: Vec<Strategy>,
 }
 
 impl FileStrategyStore {
+    /// Opens validated strategy history or creates a default history file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when existing history is malformed or the initial
+    /// history cannot be read or written.
+    pub fn open(path: PathBuf) -> std::io::Result<Self> {
+        let snapshots = if path.exists() {
+            let data = std::fs::read_to_string(&path)?;
+            let snapshots: Vec<Strategy> = serde_json::from_str(&data)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            if snapshots.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "strategy history must contain at least one snapshot",
+                ));
+            }
+            snapshots
+        } else {
+            let snapshots = vec![Strategy::default()];
+            let json = serde_json::to_string_pretty(&snapshots)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            std::fs::write(&path, json)?;
+            snapshots
+        };
+        Ok(Self { path, snapshots })
+    }
+
     pub fn new(path: PathBuf) -> Self {
         let snapshots = if path.exists() {
             let data = std::fs::read_to_string(&path).unwrap_or_default();
@@ -99,5 +128,19 @@ mod tests {
         store.apply(&StrategyDiff::default());
         store.apply(&StrategyDiff::default());
         assert_eq!(store.history().len(), 3);
+    }
+
+    #[test]
+    fn open_creates_default_history_and_rejects_malformed_state() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("strategy.json");
+
+        let store = FileStrategyStore::open(path.clone()).unwrap();
+        assert_eq!(store.current().version, 0);
+        assert!(path.exists());
+
+        std::fs::write(&path, "not json").unwrap();
+        let error = FileStrategyStore::open(path).err().unwrap();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 }

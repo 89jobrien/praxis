@@ -1,17 +1,75 @@
 project: praxis
 id: praxis
-updated: 2026-05-20
-items: []
+updated: 2026-09-20
+items:
+- id: t9
+  name: define-ingestion-results-and-errors
+  priority: P2
+  status: open
+  title: Define Ingestion Results And Errors
+  description: Task t9 in progress
+- id: uncommitted-work
+  name: uncommitted-work
+  priority: P1
+  status: open
+  title: Uncommitted changes (17 files)
+  description: |-
+    Working tree has uncommitted changes:
+    .ctx/HANDOFF.praxis.praxis.yaml
+    Cargo.lock
+    README.md
+    crates/praxis-core/src/lib.rs
+    crates/praxis-eval/src/stub.rs
+    crates/praxis-store/src/lib.rs
+    crates/praxis-store/src/strategy_file.rs
+    crates/praxis/src/lib.rs
+    crates/praxis/src/main.rs
+    .health-baseline.json
+    .xtask-cache/
+    crates/praxis-core/src/trace_source.rs
+    crates/praxis-store/src/ingestion_ledger_file.rs
+    crates/praxis-store/src/trace_file.rs
+    crates/praxis/src/ingest.rs
+    docs/designs/
+    xtask/master-hash
+  files:
+  - .ctx/HANDOFF.praxis.praxis.yaml
+  - Cargo.lock
+  - README.md
+  - crates/praxis-core/src/lib.rs
+  - crates/praxis-eval/src/stub.rs
+  - crates/praxis-store/src/lib.rs
+  - crates/praxis-store/src/strategy_file.rs
+  - crates/praxis/src/lib.rs
+  - crates/praxis/src/main.rs
+  - .health-baseline.json
+  - .xtask-cache/
+  - crates/praxis-core/src/trace_source.rs
+  - crates/praxis-store/src/ingestion_ledger_file.rs
+  - crates/praxis-store/src/trace_file.rs
+  - crates/praxis/src/ingest.rs
+  - docs/designs/
+  - xtask/master-hash
 log:
-  - date: 2026-05-10
-    summary: |-
-      0de20a3 chore: rename handoff to hj convention, reformat README
-      95936d2 docs: update README with concurrent batch API and xtask commands
-      7437259 refactor: remove praxis-task, add concurrent batch to ImprovementLoop
-      277aa03 feat: add xtask for workspace build tasks
-      4fe7bbf feat(praxis-task): add concurrent task queue with status tracking
-      3d9c4de feat: add MetricsEvaluator, demo binary, and README
-      cde355a feat: scaffold praxis workspace
-    commits:
-      - !Sha 0de20a3
-repo: praxis
+- date: '20260920.045637'
+  summary: done=8 running=1 pending=5 blocked=0
+  commits:
+  - 845362ab7b9e1fe570e744a0d09825941fe12c53
+  - 48ef5cee093b561a4a569bd08826db3a8a280252
+  - e1edf9cb7d6081d2ff99f3559989b77c3848d21e
+  - d07db9ec0657fd5f89936088d2a9994fc3595872
+  - ad6660fb91ef5d362e04dc1b7934f32151d0ef49
+  - 37272c89e23113efc447e039fe5f75a7b30a35b2
+  - f6f3754399e46368e9c80b24510c412c8cddf733
+  - c9e24808593acbea5bea7d18a39de7b4a40ecacd
+  - ab5d12fc28cb7ba830bc80b99cc917b5fbc749c7
+  - 244cd77b971b4e489b035f6b4fc562b4891f255c
+- date: 2026-05-10
+  summary: |-
+    0de20a3 chore: rename handoff to hj convention, reformat README
+    95936d2 docs: update README with concurrent batch API and xtask commands
+    7437259 refactor: remove praxis-task, add concurrent batch to ImprovementLoop
+    277aa03 feat: add xtask for workspace build tasks
+    4fe7bbf feat(praxis-task): add concurrent task queue with status tracking
+    3d9c4de feat: add MetricsEvaluator, demo binary, and README
+    cde355a feat: scaffold praxis workspace

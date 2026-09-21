@@ -1,3 +1,5 @@
+//! Domain types and ports for evaluating traces and evolving agent strategies.
+
 pub mod evaluator;
 pub mod reward;
 pub mod store;

@@ -24,7 +24,7 @@ If a strategy change causes a regression, it can be rolled back.
 
 ## Demo
 
-```
+```text
 $ cargo xtask demo
 
 praxis -- self-improving agent runtime demo
@@ -131,7 +131,7 @@ produces findings for low success rate, low confidence, and high error rate.
 
 Hexagonal (ports/adapters). Domain logic as traits, adapters are swappable. The `ImprovementLoop` is thread-safe, cloneable, and supports both sequential and concurrent trace evaluation.
 
-```
+```text
 praxis/
   crates/
     praxis-core/       port traits (zero async, zero adapters)
@@ -159,7 +159,7 @@ praxis/
 
 ### Dependency direction
 
-```
+```text
 praxis -> cruxx-improve -> cruxx-core, cruxx-types, cruxx-planner
 ```
 

@@ -1,3 +1,5 @@
+//! In-memory reward history and linear score-trend calculation.
+
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use crux_improve::CruxId;
@@ -12,6 +14,7 @@ pub struct InMemoryRewardStore {
 }
 
 impl InMemoryRewardStore {
+    /// Creates an empty reward store.
     pub fn new() -> Self {
         Self::default()
     }

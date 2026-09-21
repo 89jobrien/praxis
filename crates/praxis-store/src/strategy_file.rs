@@ -1,3 +1,5 @@
+//! JSON-backed strategy snapshots with version rollback.
+
 use crux_improve::{Strategy, StrategyDiff};
 use praxis_core::store::StrategyStore;
 use std::path::PathBuf;
@@ -37,6 +39,7 @@ impl FileStrategyStore {
         Ok(Self { path, snapshots })
     }
 
+    /// Loads strategy history, falling back to a default snapshot if it is unavailable.
     pub fn new(path: PathBuf) -> Self {
         let snapshots = if path.exists() {
             let data = std::fs::read_to_string(&path).unwrap_or_default();

@@ -1,3 +1,5 @@
+//! Minimal evaluator that returns extracted metrics without findings.
+
 use async_trait::async_trait;
 use chrono::Utc;
 use crux_improve::{Crux, TraceMetrics};
@@ -41,7 +43,10 @@ mod tests {
             finished_at: Some(Utc::now()),
         };
         let result = eval.evaluate(&trace).await.unwrap();
-        assert!((result.score - 0.5).abs() < f32::EPSILON);
+        assert!((result.score - 0.0).abs() < f32::EPSILON);
+        assert_eq!(result.metrics.step_count, 0);
+        assert_eq!(result.metrics.success_rate, 0.0);
+        assert_eq!(result.metrics.avg_confidence, 0.0);
         assert!(result.findings.is_empty());
     }
 }

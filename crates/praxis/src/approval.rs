@@ -1,3 +1,5 @@
+//! Approval decisions and gates for proposed strategy improvements.
+
 use std::io::Write;
 
 use async_trait::async_trait;
@@ -12,6 +14,7 @@ pub enum ApprovalDecision {
 
 #[async_trait]
 pub trait ApprovalGate: Send + Sync {
+    /// Reviews a proposed improvement and returns its disposition.
     async fn review(&self, improvement: &Improvement) -> ApprovalDecision;
 }
 

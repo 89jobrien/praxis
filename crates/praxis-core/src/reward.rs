@@ -1,3 +1,5 @@
+//! Reward history, trend data, and the reward accumulator port.
+
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use crux_improve::CruxId;
@@ -35,6 +37,7 @@ pub enum RewardError {
 
 #[async_trait]
 pub trait RewardAccumulator: Send + Sync {
+    /// Records an agent's evaluation score for a trace.
     async fn record(
         &mut self,
         trace_id: CruxId,
@@ -42,12 +45,14 @@ pub trait RewardAccumulator: Send + Sync {
         score: f32,
     ) -> Result<(), RewardError>;
 
+    /// Returns rewards for an agent, optionally limited to a recent window.
     async fn query(
         &self,
         agent: &str,
         window: Option<Duration>,
     ) -> Result<Vec<Reward>, RewardError>;
 
+    /// Computes the score trend across an agent's recorded rewards.
     async fn trend(&self, agent: &str) -> Result<Trend, RewardError>;
 }
 

@@ -1,3 +1,5 @@
+//! Runtime orchestration for trace ingestion and iterative strategy improvement.
+
 pub mod approval;
 pub mod ingest;
 pub mod loop_runner;

@@ -1,3 +1,5 @@
+//! Trace discovery and processed-trace ledger ports.
+
 use crux_improve::{Crux, CruxId};
 
 /// A validated trace and the source it was loaded from.

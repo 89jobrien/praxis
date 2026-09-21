@@ -1,3 +1,5 @@
+//! Ordered, deduplicated ingestion of discovered traces into the improvement loop.
+
 use crate::ImprovementLoop;
 use crux_improve::CruxId;
 use praxis_core::{

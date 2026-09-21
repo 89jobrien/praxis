@@ -1,3 +1,5 @@
+//! LLM-backed trace evaluation with deterministic metrics fallback.
+
 use async_trait::async_trait;
 use chrono::Utc;
 use crux_improve::Crux;
@@ -31,6 +33,7 @@ struct LlmResponse {
 }
 
 impl LlmEvaluator {
+    /// Creates an evaluator with a new HTTP client and metrics fallback.
     pub fn new(config: LlmEvaluatorConfig) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -39,6 +42,7 @@ impl LlmEvaluator {
         }
     }
 
+    /// Returns the evaluator's API and response-limit configuration.
     pub fn config(&self) -> &LlmEvaluatorConfig {
         &self.config
     }

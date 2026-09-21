@@ -98,19 +98,25 @@ comprehensive test coverage.
 **File(s)**: `Cargo.toml`, `crates/praxis-store/Cargo.toml`
 
 1. Add to workspace deps:
+
    ```toml
    rusqlite = { version = "0.34", features = ["bundled"] }
    ```
+
 2. Add to praxis-store:
+
    ```toml
    rusqlite = { workspace = true, optional = true }
    ```
+
 3. Add feature:
+
    ```toml
    [features]
    default = []
    sqlite = ["dep:rusqlite"]
    ```
+
 4. Verify: `cargo check -p praxis-store --features sqlite`
 5. Commit: `chore(praxis-store): add rusqlite dependency`
 
@@ -161,7 +167,7 @@ comprehensive test coverage.
 
 3. Verify:
 
-   ```
+   ```text
    cargo nextest run -p praxis-store --features sqlite
    cargo clippy -p praxis-store --features sqlite -- -D warnings
    ```
@@ -195,9 +201,11 @@ comprehensive test coverage.
 **File(s)**: `Cargo.toml`, `crates/praxis-eval/Cargo.toml`
 
 1. Add to workspace deps:
+
    ```toml
    reqwest = { version = "0.12", features = ["json"] }
    ```
+
 2. Add to praxis-eval:
 
    ```toml
@@ -406,7 +414,6 @@ comprehensive test coverage.
 
 2. Add `auto_rollback: bool` to `LoopConfig` (default `false` for
    backwards compat).
-
 3. Write test:
 
    ```rust
@@ -499,9 +506,9 @@ comprehensive test coverage.
 1. Test that wires `MetricsEvaluator` + `DeterministicStrategyPlanner`
    - `FileStrategyStore` + `InMemoryRewardStore` + `AutoApproveGate`
      and runs 3 cycles:
-   * Cycle 1: low score -> improvement proposed + applied
-   * Cycle 2: higher score -> improvement trend
-   * Cycle 3: regression -> rollback (if auto_rollback enabled)
+   - Cycle 1: low score -> improvement proposed + applied
+   - Cycle 2: higher score -> improvement trend
+   - Cycle 3: regression -> rollback (if auto_rollback enabled)
 
 2. Commit: `test(praxis): add integration test for full loop`
 
@@ -553,7 +560,7 @@ comprehensive test coverage.
 
 ## Dependency Order
 
-```
+```text
 Phase 1 (SQLite store) ----+
 Phase 2 (LLM evaluator) ---+---> Phase 6 (tests use all adapters)
 Phase 3 (approval gate) ---+

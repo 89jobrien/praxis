@@ -1,3 +1,5 @@
+//! SQLite-backed reward history and linear score-trend calculation.
+
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use crux_improve::CruxId;
@@ -15,6 +17,7 @@ pub struct SqliteRewardStore {
 }
 
 impl SqliteRewardStore {
+    /// Opens a reward database and initializes its schema.
     pub fn new(path: PathBuf) -> Result<Self, RewardError> {
         let conn = Connection::open(path).map_err(|e| RewardError::Store(e.to_string()))?;
         let store = Self {
@@ -24,6 +27,7 @@ impl SqliteRewardStore {
         Ok(store)
     }
 
+    /// Creates an in-memory reward database with an initialized schema.
     pub fn in_memory() -> Result<Self, RewardError> {
         let conn = Connection::open_in_memory().map_err(|e| RewardError::Store(e.to_string()))?;
         let store = Self {

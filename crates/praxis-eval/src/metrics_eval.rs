@@ -1,3 +1,5 @@
+//! Deterministic trace evaluation from extracted execution metrics.
+
 use async_trait::async_trait;
 use chrono::Utc;
 use crux_improve::{Crux, StepStatus, TraceMetrics};

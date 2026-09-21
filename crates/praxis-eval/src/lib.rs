@@ -1,3 +1,5 @@
+//! Evaluator and strategy-planner adapters for Praxis.
+
 pub mod deterministic;
 pub mod metrics_eval;
 pub mod stub;

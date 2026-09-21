@@ -1,0 +1,48 @@
+{
+  "cargo_lock_hash": "94034101dc20acfc429c51269442bd5e0068479d5700d19113c190ae5562ef2d",
+  "crates": {
+    "praxis": {
+      "hash": "b8eaf51d5616cfa15edd69fc9d4f4c87f0d9afaf2f616fdf679e610f998ca94e",
+      "modules": {
+        "./crates/praxis/Cargo.toml": "97a3aa1aa6c9d52df49450900db5c126dc8f754711717f70b8407a3e03638fd1",
+        "./crates/praxis/src/approval.rs": "431fdd5c06efce003154318078012e7b1fd0229c43c8bc38f52187e70fae84e6",
+        "./crates/praxis/src/lib.rs": "4b266fcd2d425afc7fd29b6253e111771a94e5717e2ef900f8e633a6e1d3aa49",
+        "./crates/praxis/src/loop_runner.rs": "094ea009ead3af13d13b40df62b91729b516ff3fa6e9d2e8d5f96239af8381da",
+        "./crates/praxis/src/main.rs": "a8695b4c8d22c55fe40d62dd0b0f3d1715c220baa06ead687492c6f9447a0c98",
+        "./crates/praxis/src/strategy_export.rs": "6809ffc23f926513535ced46d2fae837f0044f1893c74f3dc8663c4466964a0f"
+      }
+    },
+    "praxis-core": {
+      "hash": "14f385bc18da05e2084e8b0ecdc44f99811d00bf279cc120696cc91eaca8600a",
+      "modules": {
+        "./crates/praxis-core/Cargo.toml": "1838d715b71122520a410a5726083fa6ca22a8e527423de2ff08d6c1a22d2f6c",
+        "./crates/praxis-core/src/evaluator.rs": "5cfab28e27142a07b024f7e93d3d6589899c17230397d90c3d857323ecc3b1e1",
+        "./crates/praxis-core/src/lib.rs": "f08e026f445d23877c3981f49d7e8ab57bc51676f3237bd204c6c99747c851ff",
+        "./crates/praxis-core/src/reward.rs": "0486dffe6d916f35a2121148a5dd0d20672d725b8b2b95cc64d0ec72af38a1b7",
+        "./crates/praxis-core/src/store.rs": "71a9659892b8139efecb780bb1c09a94fc2fbeb88700dfed8967d27169a1a4d4",
+        "./crates/praxis-core/src/strategy.rs": "1fb75cb84b2ae3abfa96195b7c5f7eccd23279ef8db7d72d9a66c003f34736ea"
+      }
+    },
+    "praxis-eval": {
+      "hash": "d005618206cd2e49456a57486f3dc76fd886baef8479400c7d0ab838a5c8f2a5",
+      "modules": {
+        "./crates/praxis-eval/Cargo.toml": "0cc776d1bf0218480eda17601292e748e144dcff75a53add64d87f92c0acee17",
+        "./crates/praxis-eval/src/deterministic.rs": "cb26299e4c94b821265042816fba389d3d3e7306ad0a185d4c094af0aa41685e",
+        "./crates/praxis-eval/src/lib.rs": "0dd63fc15282c96fdffcf41f10bc2cf7231fd3ca17ea09060e1ab60bef7d7e0c",
+        "./crates/praxis-eval/src/llm_eval.rs": "d333f58228058a351f5fc40f8dbf4c7bf4eca950bac7b81e389d63ebea4bd471",
+        "./crates/praxis-eval/src/metrics_eval.rs": "f760aa91fd283190e9c71d3e262cb7d8d207fa4ff0cf5f33f7bb0ef01d298484",
+        "./crates/praxis-eval/src/stub.rs": "f4180f6e19810c493734dbe157c72f8013ebc21a52ef26d437686b8c3ffca8c6"
+      }
+    },
+    "praxis-store": {
+      "hash": "c1be5a53df1cf721ac0485af376792008ed0381a45a4b7d83b9d203f05097ae6",
+      "modules": {
+        "./crates/praxis-store/Cargo.toml": "1603c06f9f308354785d0815b88f07de7c45309cbb1088f20d5bf51e779017c4",
+        "./crates/praxis-store/src/lib.rs": "87ecbc33dba13d6ef34cfe4537b64044a339a0ab94bf67a633be890b80b6692c",
+        "./crates/praxis-store/src/reward_memory.rs": "beac404a1440ec7086aaecfb37a5fb65d6f8c7af70bfe871f26afd097b0a2127",
+        "./crates/praxis-store/src/reward_sqlite.rs": "d94967b9eff59e354bed57764682412c57076a5cc739d105b46e5cb7b089bef6",
+        "./crates/praxis-store/src/strategy_file.rs": "19e4013f5d54e626939cf257d5d35bf71bc8e19e0b04efecac18e426c681ccf9"
+      }
+    }
+  }
+}

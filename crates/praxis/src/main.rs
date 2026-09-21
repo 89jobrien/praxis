@@ -1,3 +1,5 @@
+//! CLI for running the Praxis demo or ingesting raw Crux traces.
+
 use crux_improve::{DefaultStrategyPolicy, StepStatus};
 use praxis::{AutoApproveGate, ImprovementLoop, IngestionReport, LoopConfig, ingest_traces};
 use praxis_core::StrategyStore as _;

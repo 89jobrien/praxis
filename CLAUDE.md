@@ -24,7 +24,7 @@ Always use `cargo nextest run` instead of `cargo test`.
 
 ## Workspace Structure
 
-```
+```text
 crates/
   praxis-core/     # Port traits (Evaluator, StrategyPlanner, StrategyStore,
                    # RewardAccumulator). Zero adapters, zero async runtime.
@@ -42,7 +42,7 @@ wires them together.
 
 ### Dependency Direction
 
-```
+```text
 praxis -> cruxx-improve -> cruxx-core, cruxx-types, cruxx-planner
 ```
 
@@ -67,7 +67,7 @@ Praxis never imports cruxx-core, cruxx-types, or cruxx-planner directly.
 
 ### The Improvement Loop
 
-```
+```text
 Session N:
   Agent runs -> Crux<T> trace
   -> Evaluator scores trace

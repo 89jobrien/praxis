@@ -1,3 +1,5 @@
+//! JSON import and export for portable strategy snapshots.
+
 use crux_improve::Strategy;
 use std::path::Path;
 

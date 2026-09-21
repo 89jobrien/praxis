@@ -1,3 +1,5 @@
+//! Sequential and concurrent orchestration of agent improvement cycles.
+
 use crate::approval::{ApprovalDecision, ApprovalGate, AutoApproveGate};
 use crux_improve::{
     Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
@@ -56,10 +58,12 @@ pub struct BatchResult {
 }
 
 impl BatchResult {
+    /// Counts cycles that completed successfully.
     pub fn succeeded(&self) -> usize {
         self.results.iter().filter(|r| r.is_ok()).count()
     }
 
+    /// Counts cycles that returned an error.
     pub fn failed(&self) -> usize {
         self.results.iter().filter(|r| r.is_err()).count()
     }
@@ -84,6 +88,7 @@ pub struct ImprovementLoop {
 }
 
 impl ImprovementLoop {
+    /// Creates a loop with default configuration and automatic approval.
     pub fn new(
         evaluator: Box<dyn Evaluator>,
         planner: Box<dyn StrategyPlanner>,
@@ -102,6 +107,7 @@ impl ImprovementLoop {
         )
     }
 
+    /// Creates a loop with explicit runtime configuration and approval behavior.
     pub fn with_config(
         evaluator: Box<dyn Evaluator>,
         planner: Box<dyn StrategyPlanner>,
@@ -130,6 +136,7 @@ impl ImprovementLoop {
         self
     }
 
+    /// Returns the latest strategy snapshot.
     pub async fn current_strategy(&self) -> Strategy {
         self.store.lock().await.current()
     }
@@ -315,6 +322,7 @@ impl ImprovementLoop {
         decisions
     }
 
+    /// Rolls strategy history back to the requested version.
     pub async fn rollback(&self, version: u64) {
         self.store.lock().await.rollback(version);
     }

@@ -1,3 +1,5 @@
+//! Deterministic strategy planning from evaluation scores and reward trends.
+
 use async_trait::async_trait;
 use chrono::Utc;
 use crux_improve::{CruxId, Improvement, ImprovementKind, Strategy, StrategyDiff};

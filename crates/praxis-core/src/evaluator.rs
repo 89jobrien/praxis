@@ -1,3 +1,5 @@
+//! Trace evaluation results, errors, and the evaluator port.
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use crux_improve::{Crux, CruxId, TraceMetrics};
@@ -21,6 +23,7 @@ pub enum EvaluationError {
 
 #[async_trait]
 pub trait Evaluator: Send + Sync {
+    /// Scores a trace and returns its metrics and actionable findings.
     async fn evaluate(
         &self,
         trace: &Crux<serde_json::Value>,

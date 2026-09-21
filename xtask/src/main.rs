@@ -1,3 +1,5 @@
+//! Workspace automation CLI for builds, checks, tests, and demos.
+
 use clap::{Parser, Subcommand};
 use std::process::{Command, ExitCode, Stdio};
 

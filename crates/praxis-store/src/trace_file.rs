@@ -1,3 +1,5 @@
+//! Recursive file discovery and validation of raw Crux JSON traces.
+
 use crux_improve::Crux;
 use praxis_core::{DiscoveredTrace, RejectedTrace, TraceDiscovery, TraceSource, TraceSourceError};
 use std::path::{Path, PathBuf};

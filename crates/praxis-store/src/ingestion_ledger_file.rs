@@ -1,3 +1,5 @@
+//! Atomic JSON persistence for successfully ingested trace IDs.
+
 use praxis_core::{IngestionLedger, IngestionLedgerError};
 use serde::{Deserialize, Serialize};
 use std::{

@@ -189,10 +189,21 @@ name = "crux-improve"
 version = "0.4.0"
 dependencies = [
  "chrono",
+ "crux-schema",
  "crux-types",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "crux-schema"
+version = "0.4.0"
+dependencies = [
+ "chrono",
+ "crux-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ const BATCH_CONCURRENCY: usize = 4;
 
 mod demo {
     use chrono::Utc;
-    use crux_improve::{Crux, CruxId, Step, StepKind, StepStatus, Verdict};
+    use crux_improve::{Crux, CruxId, Step, StepKind, StepOrigin, StepStatus, Verdict};
 
     const REGRESSION_DELTA_THRESHOLD: f32 = -0.05;
 
@@ -27,13 +27,16 @@ mod demo {
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({"status": "complete"})),
             steps: steps
                 .into_iter()
                 .map(|(name, status, confidence)| Step {
+                    stable_id: None,
                     name: name.into(),
                     kind: StepKind::Plain,
                     status,
+                    origin: StepOrigin::Live,
                     confidence,
                     started_at: Utc::now(),
                     duration_ms: 150,
@@ -41,8 +44,10 @@ mod demo {
                     content_hash: None,
                     output: None,
                     error: None,
+                    cited_reason: None,
                     attempt: 1,
                     events: vec![],
+                    event_subscribers: Default::default(),
                     metadata: Default::default(),
                     findings: vec![],
                 })
@@ -181,6 +186,11 @@ enum CliAction {
 
 #[tokio::main]
 async fn main() {
+    if matches!(env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("praxis {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let action = match parse_demo_args(env::args().skip(1)) {
         Ok(action) => action,
         Err(message) => {

@@ -2,9 +2,8 @@
 name = "xtask"
 version = "0.0.0"
 edition = "2024"
-# TODO(msrv): the declared rust-version is wrong — the workspace's true MSRV is 1.89.0. (#5)
-rust-version = "1.85"
-# TODO(license): xtask declares no licence, so `cargo deny` fails the licence check. (#6)
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]

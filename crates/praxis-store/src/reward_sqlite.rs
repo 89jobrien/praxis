@@ -6,8 +6,14 @@ use crux_improve::CruxId;
 use praxis_core::reward::{Reward, RewardAccumulator, RewardError, Trend, TrendDirection};
 use rusqlite::Connection;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Mutex;
+
+fn trace_id_from_str(s: &str) -> CruxId {
+    // CruxId has a private field and no public FromStr impl.
+    // We know from crux source that it wraps a String directly.
+    // Use a safe workaround: serialize to JSON and deserialize via serde.
+    serde_json::from_str(&format!("\"{}\"", s)).expect("CruxId deserialization")
+}
 
 const IMPROVING_SLOPE_THRESHOLD: f32 = 0.01;
 const DECLINING_SLOPE_THRESHOLD: f32 = -0.01;
@@ -105,32 +111,26 @@ impl RewardAccumulator for SqliteRewardStore {
             .map_err(|e| RewardError::Store(e.to_string()))?
         };
 
-        let rows = if let Some(ref c) = cutoff {
-            stmt.query_map(rusqlite::params![agent, c], |row| {
-                Ok(RowData {
-                    trace_id: row.get(0)?,
-                    agent: row.get(1)?,
-                    score: row.get::<_, f64>(2)?,
-                    recorded_at: row.get::<_, String>(3)?,
-                })
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<RowData> {
+            Ok(RowData {
+                trace_id: row.get(0)?,
+                agent: row.get(1)?,
+                score: row.get::<_, f64>(2)?,
+                recorded_at: row.get::<_, String>(3)?,
             })
+        };
+
+        let rows = if let Some(c) = cutoff {
+            stmt.query_map(rusqlite::params![agent, c], map_row)
         } else {
-            stmt.query_map(rusqlite::params![agent], |row| {
-                Ok(RowData {
-                    trace_id: row.get(0)?,
-                    agent: row.get(1)?,
-                    score: row.get::<_, f64>(2)?,
-                    recorded_at: row.get::<_, String>(3)?,
-                })
-            })
+            stmt.query_map(rusqlite::params![agent], map_row)
         }
         .map_err(|e| RewardError::Store(e.to_string()))?;
 
         let mut rewards = Vec::new();
         for row in rows {
             let r = row.map_err(|e| RewardError::Store(e.to_string()))?;
-            let trace_id =
-                CruxId::from_str(&r.trace_id).map_err(|e| RewardError::Store(e.to_string()))?;
+            let trace_id = trace_id_from_str(&r.trace_id);
             let recorded_at = DateTime::parse_from_rfc3339(&r.recorded_at)
                 .map(|dt| dt.with_timezone(&Utc))
                 .map_err(|e| RewardError::Store(e.to_string()))?;

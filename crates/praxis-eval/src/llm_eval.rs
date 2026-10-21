@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::metrics_eval::MetricsEvaluator;
 
+#[cfg(test)]
+#[allow(unused_imports)]
+use crux_improve::{Step, StepKind, StepOrigin, StepStatus};
+
 /// Configuration for the LLM-backed evaluator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmEvaluatorConfig {
@@ -151,11 +155,14 @@ mod tests {
         Crux {
             id: CruxId::new(),
             agent: "test-agent".into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({})),
             steps: vec![Step {
+                stable_id: None,
                 name: "step1".into(),
                 kind: StepKind::Plain,
                 status: StepStatus::Ok,
+                origin: StepOrigin::Live,
                 confidence: 0.9,
                 started_at: Utc::now(),
                 duration_ms: 100,
@@ -163,9 +170,12 @@ mod tests {
                 content_hash: None,
                 output: None,
                 error: None,
+                cited_reason: None,
                 attempt: 1,
                 events: vec![],
-                metadata: Default::default(), findings: vec![],
+                event_subscribers: Default::default(),
+                metadata: Default::default(),
+                findings: vec![],
             }],
             children: vec![],
             started_at: Utc::now(),

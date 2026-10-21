@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "Storage adapters for praxis"
 
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+
 [dependencies]
 praxis-core = { path = "../praxis-core" }
 crux-improve = { workspace = true }
@@ -13,6 +17,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rusqlite = { version = "0.32", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

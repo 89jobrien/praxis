@@ -1,3 +1,5 @@
+# TODO(msrv): 1.85.0 cannot compile crux-improve 0.5.0, which requires rustc 1.89.0. Pin a
+# version that satisfies every dependency in the workspace. (#4)
 [toolchain]
 channel = "1.85.0"
 components = ["clippy", "rustfmt"]

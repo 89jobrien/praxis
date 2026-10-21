@@ -81,13 +81,15 @@ impl Evaluator for MetricsEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crux_improve::{CruxId, Step, StepKind};
+    use crux_improve::{CruxId, Step, StepKind, StepOrigin};
 
     fn step(name: &str, status: StepStatus, confidence: f32) -> Step {
         Step {
+            stable_id: None,
             name: name.into(),
             kind: StepKind::Plain,
             status,
+            origin: StepOrigin::Live,
             confidence,
             started_at: Utc::now(),
             duration_ms: 100,
@@ -95,8 +97,10 @@ mod tests {
             content_hash: None,
             output: None,
             error: None,
+            cited_reason: None,
             attempt: 1,
             events: vec![],
+            event_subscribers: Default::default(),
             metadata: Default::default(),
             findings: vec![],
         }
@@ -106,6 +110,7 @@ mod tests {
         Crux {
             id: CruxId::new(),
             agent: "test".into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({})),
             steps,
             children: vec![],

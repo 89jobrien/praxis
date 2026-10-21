@@ -1,5 +1,8 @@
 //! Domain types and ports for evaluating traces and evolving agent strategies.
 
+// TODO(docs): public API doc coverage is 66%. Document the port traits and the error enums
+// here to lift the workspace health score above its threshold. (#14)
+
 pub mod evaluator;
 pub mod reward;
 pub mod store;

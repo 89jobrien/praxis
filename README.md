@@ -1,5 +1,8 @@
 # praxis
 
+<!-- TODO(docs): this README still uses the pre-rename `cruxx-*` crate names, and the
+`cruxx-planner` crate no longer exists in the crux workspace. Update the references. (#15) -->
+
 Self-improving agent runtime for the [cruxx](https://github.com/89jobrien/cruxx) agentic DSL.
 Closes the loop between execution traces, evaluation, and strategy evolution so agents get better at their job across sessions.
 

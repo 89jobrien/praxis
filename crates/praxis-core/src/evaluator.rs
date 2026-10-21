@@ -22,6 +22,7 @@ pub enum EvaluationError {
 }
 
 #[async_trait]
+#[allow(clippy::double_must_use)] // `async_trait` adds a redundant `#[must_use]`.
 pub trait Evaluator: Send + Sync {
     /// Scores a trace and returns its metrics and actionable findings.
     async fn evaluate(
@@ -39,6 +40,7 @@ mod tests {
         let m = TraceMetrics::extract(&Crux {
             id: CruxId::new(),
             agent: "t".into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({})),
             steps: vec![],
             children: vec![],

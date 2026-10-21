@@ -13,6 +13,7 @@ pub enum PlannerError {
 }
 
 #[async_trait]
+#[allow(clippy::double_must_use)] // `async_trait` adds a redundant `#[must_use]`.
 pub trait StrategyPlanner: Send + Sync {
     /// Proposes improvements from an evaluation, reward trend, and current strategy.
     async fn propose(

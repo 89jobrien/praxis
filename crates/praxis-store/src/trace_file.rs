@@ -161,6 +161,7 @@ mod tests {
         let trace = Crux {
             id: CruxId::new(),
             agent: agent.into(),
+            pipeline_version: None,
             value: Ok(json!({"complete": true})),
             steps: vec![],
             children: vec![],

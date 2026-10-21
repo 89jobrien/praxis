@@ -1,5 +1,8 @@
 # Plan: Praxis Roadmap — Six Features
 
+<!-- TODO(docs): the code samples below still use the pre-rename `cruxx_improve` crate name.
+Update them, or mark this plan as a snapshot that predates the rename. (#17) -->
+
 ## Goal
 
 Evolve praxis from a demo-ready prototype into a production-capable

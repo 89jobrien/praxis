@@ -13,6 +13,7 @@ pub enum ApprovalDecision {
 }
 
 #[async_trait]
+#[allow(clippy::double_must_use)] // `async_trait` adds a redundant `#[must_use]`.
 pub trait ApprovalGate: Send + Sync {
     /// Reviews a proposed improvement and returns its disposition.
     async fn review(&self, improvement: &Improvement) -> ApprovalDecision;

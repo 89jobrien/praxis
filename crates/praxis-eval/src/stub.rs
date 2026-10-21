@@ -36,6 +36,7 @@ mod tests {
         let trace = Crux {
             id: CruxId::new(),
             agent: "test".into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({})),
             steps: vec![],
             children: vec![],

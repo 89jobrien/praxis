@@ -24,9 +24,15 @@ mod demo {
         agent: &str,
         steps: Vec<(&str, StepStatus, f32)>,
     ) -> Crux<serde_json::Value> {
+        // TODO(crux): `Crux` and `Step` are built by struct literal, so every upstream crux
+        // field addition breaks this workspace. Route construction through a single helper
+        // instead. (#18)
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
+            // TODO(provenance): `pipeline_version` is never populated, so traces carry no
+            // pipeline identity for crux replay or version comparison. Populate it from
+            // configuration. (#13)
             pipeline_version: None,
             value: Ok(serde_json::json!({"status": "complete"})),
             steps: steps
@@ -246,6 +252,9 @@ async fn run_demo(mode: DemoMode) {
             concurrency: BATCH_CONCURRENCY,
             ..Default::default()
         },
+        // TODO(cli): the approval gate is hard-wired at both construction sites, so
+        // `CliApprovalGate` is unreachable and every improvement is auto-approved. Make the gate
+        // selectable from the command line. (#12)
         Box::new(AutoApproveGate),
     );
 

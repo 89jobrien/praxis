@@ -1,5 +1,8 @@
 # CLAUDE.md
 
+<!-- TODO(docs): this file still uses the pre-rename `cruxx-*` crate names, and the
+`cruxx-planner` crate no longer exists in the crux workspace. Update the references. (#16) -->
+
 This file provides guidance to Claude Code when working with the praxis
 codebase.
 

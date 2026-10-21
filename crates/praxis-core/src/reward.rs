@@ -36,6 +36,7 @@ pub enum RewardError {
 }
 
 #[async_trait]
+#[allow(clippy::double_must_use)] // `async_trait` adds a redundant `#[must_use]`.
 pub trait RewardAccumulator: Send + Sync {
     /// Records an agent's evaluation score for a trace.
     async fn record(

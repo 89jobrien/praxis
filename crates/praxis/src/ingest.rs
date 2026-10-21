@@ -168,6 +168,7 @@ mod tests {
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
+            pipeline_version: None,
             value: Ok(serde_json::Value::Null),
             steps: vec![],
             children: vec![],

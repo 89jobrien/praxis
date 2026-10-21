@@ -1,5 +1,9 @@
 name: CI
 
+# TODO(ci-toolchain): both jobs install a floating `stable` toolchain instead of the channel
+# pinned in rust-toolchain.toml, so CI results depend on whichever stable release is current.
+# (#11)
+
 on:
   push:
     branches: [main]
@@ -27,6 +31,8 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      # TODO(ci-locked): build with `--locked` so a stale Cargo.lock fails the pipeline instead
+      # of being silently re-resolved. (#10)
       - name: Build
         run: cargo build --all-targets
 

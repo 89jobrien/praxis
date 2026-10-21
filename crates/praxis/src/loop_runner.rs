@@ -34,6 +34,9 @@ pub struct CycleResult {
     pub comparison: Option<Comparison>,
 }
 
+// TODO(rollback): `auto_rollback` was removed from `LoopConfig` in dd63531. Restore the flag,
+// the rollback branch in the improvement cycle, and the `regression_triggers_rollback` test.
+// (#3)
 /// Configuration for the improvement loop.
 #[derive(Debug, Clone)]
 pub struct LoopConfig {
@@ -334,7 +337,7 @@ mod tests {
     use crate::approval::ApprovalDecision;
     use async_trait::async_trait;
     use chrono::Utc;
-    use crux_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepStatus};
+    use crux_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepOrigin, StepStatus};
     use praxis_eval::{DeterministicStrategyPlanner, StubEvaluator};
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
@@ -343,11 +346,14 @@ mod tests {
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
+            pipeline_version: None,
             value: Ok(serde_json::json!({})),
             steps: vec![Step {
+                stable_id: None,
                 name: "step-1".into(),
                 kind: StepKind::Plain,
                 status,
+                origin: StepOrigin::Live,
                 confidence,
                 started_at: Utc::now(),
                 duration_ms: 100,
@@ -355,8 +361,10 @@ mod tests {
                 content_hash: None,
                 output: None,
                 error: None,
+                cited_reason: None,
                 attempt: 1,
                 events: vec![],
+                event_subscribers: Default::default(),
                 metadata: Default::default(),
                 findings: vec![],
             }],

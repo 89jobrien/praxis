@@ -2,7 +2,8 @@
 
 use crate::approval::{ApprovalDecision, ApprovalGate, AutoApproveGate};
 use crux_improve::{
-    Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, replay_compare,
+    Comparison, Crux, Improvement, Strategy, StrategyPolicy, StrategyViolation, Verdict,
+    replay_compare,
 };
 use praxis_core::evaluator::{Evaluation, Evaluator};
 use praxis_core::reward::RewardAccumulator;
@@ -34,9 +35,6 @@ pub struct CycleResult {
     pub comparison: Option<Comparison>,
 }
 
-// TODO(rollback): `auto_rollback` was removed from `LoopConfig` in dd63531. Restore the flag,
-// the rollback branch in the improvement cycle, and the `regression_triggers_rollback` test.
-// (#3)
 /// Configuration for the improvement loop.
 #[derive(Debug, Clone)]
 pub struct LoopConfig {
@@ -44,6 +42,8 @@ pub struct LoopConfig {
     pub concurrency: usize,
     /// If set, export strategy as JSON to this path after each cycle.
     pub export_path: Option<std::path::PathBuf>,
+    /// Automatically rollback strategy on regression detection.
+    pub auto_rollback: bool,
 }
 
 impl Default for LoopConfig {
@@ -51,6 +51,7 @@ impl Default for LoopConfig {
         Self {
             concurrency: 4,
             export_path: None,
+            auto_rollback: false,
         }
     }
 }
@@ -170,6 +171,18 @@ impl ImprovementLoop {
             self.classify_improvements(improvements, current).await?;
 
         let comparison = self.compare_and_store_trace(trace).await;
+
+        // Auto-rollback on regression detection
+        if self.config.auto_rollback
+            && comparison
+                .as_ref()
+                .is_some_and(|cmp| cmp.verdict == Verdict::Regressed)
+        {
+            let current_version = self.store.lock().await.current().version;
+            if current_version > 0 {
+                self.store.lock().await.rollback(current_version - 1);
+            }
+        }
 
         // Auto-export strategy if configured
         if let Some(ref path) = self.config.export_path {
@@ -337,7 +350,9 @@ mod tests {
     use crate::approval::ApprovalDecision;
     use async_trait::async_trait;
     use chrono::Utc;
-    use crux_improve::{CruxId, DefaultStrategyPolicy, Step, StepKind, StepOrigin, StepStatus};
+    use crux_improve::{
+        CruxId, DefaultStrategyPolicy, Step, StepKind, StepOrigin, StepStatus, Verdict,
+    };
     use praxis_eval::{DeterministicStrategyPlanner, StubEvaluator};
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
@@ -476,6 +491,7 @@ mod tests {
             LoopConfig {
                 concurrency: 4,
                 export_path: Some(export_path.clone()),
+                ..Default::default()
             },
             Box::new(AutoApproveGate),
         );
@@ -704,5 +720,45 @@ mod tests {
         );
         assert!(result.applied.is_empty());
         assert!(result.deferred.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_triggers_rollback() {
+        let dir = TempDir::new().unwrap();
+        let runner = ImprovementLoop::with_config(
+            Box::new(StubEvaluator),
+            Box::new(DeterministicStrategyPlanner::default()),
+            Box::new(FileStrategyStore::new(dir.path().join("s.json"))),
+            Box::new(InMemoryRewardStore::new()),
+            Box::new(DefaultStrategyPolicy::default()),
+            LoopConfig {
+                concurrency: 4,
+                auto_rollback: true,
+                ..Default::default()
+            },
+            Box::new(AutoApproveGate),
+        );
+        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let r1 = runner.run_cycle(&good).await.unwrap();
+        let v_after_good = r1.strategy.version;
+        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let r2 = runner.run_cycle(&bad).await.unwrap();
+        assert!(r2.comparison.is_some());
+        assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);
+        assert!(r2.strategy.version <= v_after_good);
+    }
+
+    #[tokio::test]
+    async fn no_rollback_when_disabled() {
+        let dir = TempDir::new().unwrap();
+        let runner = make_loop(&dir);
+        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let r1 = runner.run_cycle(&good).await.unwrap();
+        let v_after_good = r1.strategy.version;
+        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let r2 = runner.run_cycle(&bad).await.unwrap();
+        assert!(r2.comparison.is_some());
+        assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);
+        assert!(r2.strategy.version >= v_after_good);
     }
 }

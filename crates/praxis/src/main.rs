@@ -23,6 +23,7 @@ mod demo {
     pub(crate) fn make_trace(
         agent: &str,
         steps: Vec<(&str, StepStatus, f32)>,
+        pipeline_version: Option<String>,
     ) -> Crux<serde_json::Value> {
         // TODO(crux): `Crux` and `Step` are built by struct literal, so every upstream crux
         // field addition breaks this workspace. Route construction through a single helper
@@ -30,10 +31,7 @@ mod demo {
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
-            // TODO(provenance): `pipeline_version` is never populated, so traces carry no
-            // pipeline identity for crux replay or version comparison. Populate it from
-            // configuration. (#13)
-            pipeline_version: None,
+            pipeline_version,
             value: Ok(serde_json::json!({"status": "complete"})),
             steps: steps
                 .into_iter()
@@ -173,8 +171,8 @@ mod demo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DemoMode {
-    Standard,
-    Live,
+    Quick,
+    Verbose,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +183,7 @@ struct IngestArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CliAction {
-    Run(DemoMode),
+    Demo(DemoMode),
     Ingest(IngestArgs),
     Help,
 }
@@ -197,7 +195,7 @@ async fn main() {
         return;
     }
 
-    let action = match parse_demo_args(env::args().skip(1)) {
+    let action = match parse_args(env::args().skip(1)) {
         Ok(action) => action,
         Err(message) => {
             eprintln!("{message}");
@@ -208,7 +206,7 @@ async fn main() {
     };
 
     match action {
-        CliAction::Run(mode) => run_demo(mode).await,
+        CliAction::Demo(mode) => run_demo(mode).await,
         CliAction::Ingest(args) => match run_ingest(args).await {
             Ok(report) => {
                 print_ingestion_report(&report);
@@ -229,9 +227,9 @@ async fn main() {
 
 async fn run_demo(mode: DemoMode) {
     match mode {
-        DemoMode::Standard => println!("praxis -- self-improving agent runtime demo\n"),
-        DemoMode::Live => {
-            println!("praxis -- live self-improving agent runtime demo\n");
+        DemoMode::Quick => println!("praxis -- self-improving agent runtime demo\n"),
+        DemoMode::Verbose => {
+            println!("praxis -- verbose self-improving agent runtime demo\n");
             demo::print_live_intro();
         }
     }
@@ -371,15 +369,19 @@ async fn run_sequential_demo(runner: &ImprovementLoop, mode: DemoMode) {
 
     for (label, steps) in sessions {
         println!("--- {label} ---");
-        if mode == DemoMode::Live {
+        if mode == DemoMode::Verbose {
             demo::print_live_trace_input(&steps);
         }
 
-        let trace = demo::make_trace("demo-agent", steps);
+        let trace = demo::make_trace(
+            "demo-agent",
+            steps,
+            runner.config().pipeline_version.clone(),
+        );
         let result = runner.run_cycle(&trace).await.unwrap();
 
         demo::print_result(&result);
-        if mode == DemoMode::Live {
+        if mode == DemoMode::Verbose {
             demo::print_live_analysis(&result);
         }
         println!();
@@ -396,6 +398,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("http-get", StepStatus::Ok, 0.9),
                 ("parse-json", StepStatus::Ok, 0.85),
             ],
+            runner.config().pipeline_version.clone(),
         ),
         demo::make_trace(
             "broken-agent",
@@ -403,6 +406,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("init", StepStatus::Err, 0.1),
                 ("retry", StepStatus::Err, 0.1),
             ],
+            runner.config().pipeline_version.clone(),
         ),
         demo::make_trace(
             "deploy-agent",
@@ -411,6 +415,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("test", StepStatus::Ok, 0.75),
                 ("push", StepStatus::Ok, 0.9),
             ],
+            runner.config().pipeline_version.clone(),
         ),
         demo::make_trace(
             "review-agent",
@@ -418,6 +423,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("diff", StepStatus::Ok, 0.7),
                 ("analyze", StepStatus::Ok, 0.65),
             ],
+            runner.config().pipeline_version.clone(),
         ),
         demo::make_trace(
             "search-agent",
@@ -425,6 +431,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("index", StepStatus::Ok, 0.6),
                 ("query", StepStatus::Err, 0.3),
             ],
+            runner.config().pipeline_version.clone(),
         ),
         demo::make_trace(
             "test-agent",
@@ -433,6 +440,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
                 ("run", StepStatus::Ok, 0.9),
                 ("report", StepStatus::Ok, 0.88),
             ],
+            runner.config().pipeline_version.clone(),
         ),
     ];
 
@@ -471,7 +479,7 @@ fn print_strategy_history(path: &Path) {
     }
 }
 
-fn parse_demo_args<I, S>(args: I) -> Result<CliAction, String>
+fn parse_args<I, S>(args: I) -> Result<CliAction, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -481,16 +489,31 @@ where
         .map(|arg| arg.as_ref().to_owned())
         .collect();
 
-    match args.as_slice() {
-        [] => Ok(CliAction::Run(DemoMode::Standard)),
+    match &args[..] {
+        [] => Ok(CliAction::Help),
         [arg] if matches!(arg.as_str(), "-h" | "--help" | "help") => Ok(CliAction::Help),
         [command, rest @ ..] if command == "ingest" => {
             parse_ingest_args(rest).map(CliAction::Ingest)
         }
-        [arg] if matches!(arg.as_str(), "live" | "live-demo" | "--live") => {
-            Ok(CliAction::Run(DemoMode::Live))
+        [command, rest @ ..] if command == "demo" => {
+            parse_demo_mode_args(rest).map(CliAction::Demo)
         }
-        [arg] => Err(format!("unknown demo argument: {arg}")),
+        [arg] if matches!(arg.as_str(), "verbose" | "--verbose") => {
+            Ok(CliAction::Demo(DemoMode::Verbose))
+        }
+        [arg] => Err(format!("unknown command: {arg}")),
+        [first, second, ..] => Err(format!(
+            "unexpected extra arguments after {first}: {second}"
+        )),
+    }
+}
+
+fn parse_demo_mode_args(args: &[String]) -> Result<DemoMode, String> {
+    match args {
+        [] => Ok(DemoMode::Quick),
+        [arg] if matches!(arg.as_str(), "quick") => Ok(DemoMode::Quick),
+        [arg] if matches!(arg.as_str(), "verbose" | "--verbose") => Ok(DemoMode::Verbose),
+        [arg] => Err(format!("unknown demo mode: {arg}")),
         [first, second, ..] => Err(format!(
             "unexpected extra arguments after {first}: {second}"
         )),
@@ -521,54 +544,75 @@ fn parse_ingest_args(args: &[String]) -> Result<IngestArgs, String> {
 }
 
 fn print_usage() {
-    println!("usage: praxis [live-demo]");
-    println!("       praxis ingest --strategy <file> <root>...");
+    println!("usage: praxis <command> [args...]");
+    println!();
+    println!("commands:");
+    println!("  demo [quick|verbose]   Run the demo (default: quick)");
+    println!("  verbose                Alias for 'demo verbose'");
+    println!("  ingest --strategy <file> <root>...  Ingest Crux traces");
+    println!("  help                   Show this help");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CliAction, DemoMode, IngestArgs, ingestion_exit_failed, parse_demo_args};
+    use super::{
+        CliAction, DemoMode, IngestArgs, ingestion_exit_failed, parse_args, parse_demo_mode_args,
+    };
     use praxis::IngestionReport;
     use std::path::PathBuf;
 
     #[test]
-    fn parse_demo_args_defaults_to_standard_mode() {
+    fn parse_args_defaults_to_help() {
+        assert_eq!(parse_args(Vec::<String>::new()), Ok(CliAction::Help));
+    }
+
+    #[test]
+    fn parse_args_supports_help_flags() {
+        for arg in ["-h", "--help", "help"] {
+            assert_eq!(parse_args([arg]), Ok(CliAction::Help));
+        }
+    }
+
+    #[test]
+    fn parse_args_accepts_demo_command() {
+        assert_eq!(parse_args(["demo"]), Ok(CliAction::Demo(DemoMode::Quick)));
         assert_eq!(
-            parse_demo_args(Vec::<String>::new()),
-            Ok(CliAction::Run(DemoMode::Standard))
+            parse_args(["demo", "quick"]),
+            Ok(CliAction::Demo(DemoMode::Quick))
+        );
+        assert_eq!(
+            parse_args(["demo", "verbose"]),
+            Ok(CliAction::Demo(DemoMode::Verbose))
+        );
+        assert_eq!(
+            parse_args(["demo", "--verbose"]),
+            Ok(CliAction::Demo(DemoMode::Verbose))
         );
     }
 
     #[test]
-    fn parse_demo_args_accepts_live_aliases() {
-        for arg in ["live", "live-demo", "--live"] {
-            assert_eq!(parse_demo_args([arg]), Ok(CliAction::Run(DemoMode::Live)));
+    fn parse_args_accepts_verbose_alias() {
+        for arg in ["verbose", "--verbose"] {
+            assert_eq!(parse_args([arg]), Ok(CliAction::Demo(DemoMode::Verbose)));
         }
     }
 
     #[test]
-    fn parse_demo_args_supports_help_flags() {
-        for arg in ["-h", "--help", "help"] {
-            assert_eq!(parse_demo_args([arg]), Ok(CliAction::Help));
-        }
-    }
-
-    #[test]
-    fn parse_demo_args_rejects_unknown_argument() {
-        let error = parse_demo_args(["--nope"]).unwrap_err();
+    fn parse_args_rejects_unknown_command() {
+        let error = parse_args(["--nope"]).unwrap_err();
         assert!(error.contains("--nope"));
     }
 
     #[test]
-    fn parse_demo_args_rejects_extra_arguments() {
-        let error = parse_demo_args(["live-demo", "extra"]).unwrap_err();
+    fn parse_args_rejects_extra_arguments() {
+        let error = parse_args(["demo", "standard", "extra"]).unwrap_err();
         assert!(error.contains("unexpected extra arguments"));
     }
 
     #[test]
-    fn parse_demo_args_accepts_ingest_command() {
+    fn parse_args_accepts_ingest_command() {
         assert_eq!(
-            parse_demo_args(["ingest", "--strategy", "state.json", "traces-a", "traces-b",]),
+            parse_args(["ingest", "--strategy", "state.json", "traces-a", "traces-b",]),
             Ok(CliAction::Ingest(IngestArgs {
                 strategy_path: PathBuf::from("state.json"),
                 roots: vec![PathBuf::from("traces-a"), PathBuf::from("traces-b")],
@@ -577,15 +621,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_demo_args_rejects_incomplete_ingest_command() {
+    fn parse_args_rejects_incomplete_ingest_command() {
         for args in [
             vec!["ingest"],
             vec!["ingest", "--strategy"],
             vec!["ingest", "--strategy", "state.json"],
             vec!["ingest", "--unknown", "state.json", "traces"],
         ] {
-            assert!(parse_demo_args(args).is_err());
+            assert!(parse_args(args).is_err());
         }
+    }
+
+    #[test]
+    fn parse_demo_mode_args_defaults_to_quick() {
+        assert_eq!(parse_demo_mode_args(&[]), Ok(DemoMode::Quick));
+    }
+
+    #[test]
+    fn parse_demo_mode_args_accepts_verbose_aliases() {
+        for arg in ["verbose", "--verbose"] {
+            assert_eq!(
+                parse_demo_mode_args(&[arg.to_string()]),
+                Ok(DemoMode::Verbose)
+            );
+        }
+    }
+
+    #[test]
+    fn parse_demo_mode_args_rejects_unknown() {
+        let error = parse_demo_mode_args(&["--nope".to_string()]).unwrap_err();
+        assert!(error.contains("--nope"));
     }
 
     #[test]

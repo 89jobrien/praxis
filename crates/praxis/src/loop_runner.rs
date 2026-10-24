@@ -44,6 +44,8 @@ pub struct LoopConfig {
     pub export_path: Option<std::path::PathBuf>,
     /// Automatically rollback strategy on regression detection.
     pub auto_rollback: bool,
+    /// Pipeline version to embed in traces for provenance tracking.
+    pub pipeline_version: Option<String>,
 }
 
 impl Default for LoopConfig {
@@ -52,6 +54,7 @@ impl Default for LoopConfig {
             concurrency: 4,
             export_path: None,
             auto_rollback: false,
+            pipeline_version: None,
         }
     }
 }
@@ -92,6 +95,11 @@ pub struct ImprovementLoop {
 }
 
 impl ImprovementLoop {
+    /// Returns the loop configuration.
+    pub fn config(&self) -> &LoopConfig {
+        &self.config
+    }
+
     /// Creates a loop with default configuration and automatic approval.
     pub fn new(
         evaluator: Box<dyn Evaluator>,
@@ -357,11 +365,16 @@ mod tests {
     use praxis_store::{FileStrategyStore, InMemoryRewardStore};
     use tempfile::TempDir;
 
-    fn make_trace(agent: &str, confidence: f32, status: StepStatus) -> Crux<serde_json::Value> {
+    fn make_trace(
+        agent: &str,
+        confidence: f32,
+        status: StepStatus,
+        pipeline_version: Option<String>,
+    ) -> Crux<serde_json::Value> {
         Crux {
             id: CruxId::new(),
             agent: agent.into(),
-            pipeline_version: None,
+            pipeline_version,
             value: Ok(serde_json::json!({})),
             steps: vec![Step {
                 stable_id: None,
@@ -403,7 +416,7 @@ mod tests {
     async fn full_cycle_evaluates_and_records() {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
-        let trace = make_trace("test-agent", 0.5, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.5, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(result.evaluation.score > 0.0);
         assert!(result.comparison.is_none());
@@ -414,11 +427,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
         runner
-            .run_cycle(&make_trace("test-agent", 0.5, StepStatus::Ok))
+            .run_cycle(&make_trace("test-agent", 0.5, StepStatus::Ok, None))
             .await
             .unwrap();
         let result = runner
-            .run_cycle(&make_trace("test-agent", 0.8, StepStatus::Ok))
+            .run_cycle(&make_trace("test-agent", 0.8, StepStatus::Ok, None))
             .await
             .unwrap();
         assert!(result.comparison.is_some());
@@ -429,16 +442,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
         runner
-            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok, None))
             .await
             .unwrap();
         let r = runner
-            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok, None))
             .await
             .unwrap();
         assert!(r.comparison.is_some());
         let r = runner
-            .run_cycle(&make_trace("agent-b", 0.6, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-b", 0.6, StepStatus::Ok, None))
             .await
             .unwrap();
         assert!(r.comparison.is_none());
@@ -449,7 +462,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
         let traces: Vec<_> = (0..5)
-            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
+            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok, None))
             .collect();
         let batch = runner.run_batch(&traces).await;
         assert_eq!(batch.succeeded(), 5);
@@ -472,7 +485,7 @@ mod tests {
             Box::new(AutoApproveGate),
         );
         let traces: Vec<_> = (0..10)
-            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok))
+            .map(|i| make_trace(&format!("agent-{i}"), 0.7, StepStatus::Ok, None))
             .collect();
         let batch = runner.run_batch(&traces).await;
         assert_eq!(batch.succeeded(), 10);
@@ -495,7 +508,7 @@ mod tests {
             },
             Box::new(AutoApproveGate),
         );
-        let trace = make_trace("test", 0.5, StepStatus::Ok);
+        let trace = make_trace("test", 0.5, StepStatus::Ok, None);
         runner.run_cycle(&trace).await.unwrap();
         assert!(export_path.exists());
         let loaded = crate::strategy_export::load_strategy(&export_path).unwrap();
@@ -508,11 +521,11 @@ mod tests {
         let runner = make_loop(&dir);
         let runner2 = runner.clone();
         runner
-            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-a", 0.5, StepStatus::Ok, None))
             .await
             .unwrap();
         let result = runner2
-            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok))
+            .run_cycle(&make_trace("agent-a", 0.8, StepStatus::Ok, None))
             .await
             .unwrap();
         assert!(result.comparison.is_some());
@@ -539,7 +552,7 @@ mod tests {
             LoopConfig::default(),
             Box::new(DeferAllGate),
         );
-        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(result.applied.is_empty());
         assert!(!result.deferred.is_empty());
@@ -601,7 +614,7 @@ mod tests {
     async fn approval_gate_can_reject() {
         let dir = TempDir::new().unwrap();
         let runner = make_rejectable_loop(&dir);
-        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(result.applied.is_empty());
         assert!(result.deferred.is_empty());
@@ -621,7 +634,7 @@ mod tests {
         );
 
         // Cycle 1: improvement gets deferred
-        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(!result.deferred.is_empty());
 
@@ -631,7 +644,7 @@ mod tests {
         assert_eq!(pending[0].target, "test-agent");
 
         // Cycle 2: another deferral accumulates
-        let trace2 = make_trace("test-agent", 0.4, StepStatus::Ok);
+        let trace2 = make_trace("test-agent", 0.4, StepStatus::Ok, None);
         runner.run_cycle(&trace2).await.unwrap();
         let pending = runner.pending_deferred().await;
         assert_eq!(pending.len(), 2);
@@ -651,7 +664,7 @@ mod tests {
             Box::new(DeferAllGate),
         );
 
-        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok, None);
         runner.run_cycle(&trace).await.unwrap();
         assert_eq!(runner.pending_deferred().await.len(), 1);
 
@@ -678,7 +691,7 @@ mod tests {
             Box::new(DeferAllGate),
         );
 
-        let trace = make_trace("lifecycle-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("lifecycle-agent", 0.3, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
 
         // Nothing was applied; one improvement was deferred.
@@ -712,7 +725,7 @@ mod tests {
     async fn rejected_improvements_recorded_in_cycle_result() {
         let dir = TempDir::new().unwrap();
         let runner = make_rejectable_loop(&dir);
-        let trace = make_trace("test-agent", 0.3, StepStatus::Ok);
+        let trace = make_trace("test-agent", 0.3, StepStatus::Ok, None);
         let result = runner.run_cycle(&trace).await.unwrap();
         assert!(
             !result.rejected.is_empty(),
@@ -738,10 +751,10 @@ mod tests {
             },
             Box::new(AutoApproveGate),
         );
-        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let good = make_trace("agent", 0.9, StepStatus::Ok, None);
         let r1 = runner.run_cycle(&good).await.unwrap();
         let v_after_good = r1.strategy.version;
-        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let bad = make_trace("agent", 0.1, StepStatus::Err, None);
         let r2 = runner.run_cycle(&bad).await.unwrap();
         assert!(r2.comparison.is_some());
         assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);
@@ -752,10 +765,10 @@ mod tests {
     async fn no_rollback_when_disabled() {
         let dir = TempDir::new().unwrap();
         let runner = make_loop(&dir);
-        let good = make_trace("agent", 0.9, StepStatus::Ok);
+        let good = make_trace("agent", 0.9, StepStatus::Ok, None);
         let r1 = runner.run_cycle(&good).await.unwrap();
         let v_after_good = r1.strategy.version;
-        let bad = make_trace("agent", 0.1, StepStatus::Err);
+        let bad = make_trace("agent", 0.1, StepStatus::Err, None);
         let r2 = runner.run_cycle(&bad).await.unwrap();
         assert!(r2.comparison.is_some());
         assert_eq!(r2.comparison.as_ref().unwrap().verdict, Verdict::Regressed);

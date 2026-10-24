@@ -1,6 +1,9 @@
 //! CLI for running the Praxis demo or ingesting raw Crux traces.
 
-use crux_improve::{DefaultStrategyPolicy, StepStatus};
+use chrono::Utc;
+use crux_improve::{
+    Crux, CruxId, DefaultStrategyPolicy, Step, StepKind, StepOrigin, StepStatus, Verdict,
+};
 use praxis::{AutoApproveGate, ImprovementLoop, IngestionReport, LoopConfig, ingest_traces};
 use praxis_core::StrategyStore as _;
 use praxis_eval::{DeterministicStrategyPlanner, MetricsEvaluator};
@@ -13,159 +16,153 @@ use std::{
 const LOW_SCORE_THRESHOLD: f32 = 0.6;
 const IMPROVEMENT_CONFIDENCE: f32 = 0.7;
 const BATCH_CONCURRENCY: usize = 4;
+const REGRESSION_DELTA_THRESHOLD: f32 = -0.05;
 
-mod demo {
-    use chrono::Utc;
-    use crux_improve::{Crux, CruxId, Step, StepKind, StepOrigin, StepStatus, Verdict};
-
-    const REGRESSION_DELTA_THRESHOLD: f32 = -0.05;
-
-    pub(crate) fn make_trace(
-        agent: &str,
-        steps: Vec<(&str, StepStatus, f32)>,
-        pipeline_version: Option<String>,
-    ) -> Crux<serde_json::Value> {
-        // TODO(crux): `Crux` and `Step` are built by struct literal, so every upstream crux
-        // field addition breaks this workspace. Route construction through a single helper
-        // instead. (#18)
-        Crux {
-            id: CruxId::new(),
-            agent: agent.into(),
-            pipeline_version,
-            value: Ok(serde_json::json!({"status": "complete"})),
-            steps: steps
-                .into_iter()
-                .map(|(name, status, confidence)| Step {
-                    stable_id: None,
-                    name: name.into(),
-                    kind: StepKind::Plain,
-                    status,
-                    origin: StepOrigin::Live,
-                    confidence,
-                    started_at: Utc::now(),
-                    duration_ms: 150,
-                    input_hash: 0,
-                    content_hash: None,
-                    output: None,
-                    error: None,
-                    cited_reason: None,
-                    attempt: 1,
-                    events: vec![],
-                    event_subscribers: Default::default(),
-                    metadata: Default::default(),
-                    findings: vec![],
-                })
-                .collect(),
-            children: vec![],
-            started_at: Utc::now(),
-            finished_at: Some(Utc::now()),
-        }
+pub(crate) fn make_trace(
+    agent: &str,
+    steps: Vec<(&str, StepStatus, f32)>,
+    pipeline_version: Option<String>,
+) -> Crux<serde_json::Value> {
+    // TODO(crux): `Crux` and `Step` are built by struct literal, so every upstream crux
+    // field addition breaks this workspace. Route construction through a single helper
+    // instead. (#18)
+    Crux {
+        id: CruxId::new(),
+        agent: agent.into(),
+        pipeline_version,
+        value: Ok(serde_json::json!({"status": "complete"})),
+        steps: steps
+            .into_iter()
+            .map(|(name, status, confidence)| Step {
+                stable_id: None,
+                name: name.into(),
+                kind: StepKind::Plain,
+                status,
+                origin: StepOrigin::Live,
+                confidence,
+                started_at: Utc::now(),
+                duration_ms: 150,
+                input_hash: 0,
+                content_hash: None,
+                output: None,
+                error: None,
+                cited_reason: None,
+                attempt: 1,
+                events: vec![],
+                event_subscribers: Default::default(),
+                metadata: Default::default(),
+                findings: vec![],
+            })
+            .collect(),
+        children: vec![],
+        started_at: Utc::now(),
+        finished_at: Some(Utc::now()),
     }
+}
 
-    pub(crate) fn print_result(result: &praxis::CycleResult) {
+pub(crate) fn print_result(result: &praxis::CycleResult) {
+    println!(
+        "  score: {:.2}  |  success_rate: {:.0}%  |  avg_confidence: {:.2}",
+        result.evaluation.score,
+        result.evaluation.metrics.success_rate * 100.0,
+        result.evaluation.metrics.avg_confidence,
+    );
+
+    for imp in &result.applied {
         println!(
-            "  score: {:.2}  |  success_rate: {:.0}%  |  avg_confidence: {:.2}",
-            result.evaluation.score,
-            result.evaluation.metrics.success_rate * 100.0,
-            result.evaluation.metrics.avg_confidence,
+            "  [applied] {:?} -> {} (confidence: {:.2})",
+            imp.kind, imp.target, imp.confidence,
         );
-
-        for imp in &result.applied {
-            println!(
-                "  [applied] {:?} -> {} (confidence: {:.2})",
-                imp.kind, imp.target, imp.confidence,
-            );
-        }
-        for imp in &result.deferred {
-            println!(
-                "  [deferred - needs approval] {:?} -> {}",
-                imp.kind, imp.target,
-            );
-        }
-
-        if let Some(cmp) = &result.comparison {
-            let arrow = match cmp.verdict {
-                Verdict::Improved => "^^ IMPROVED",
-                Verdict::Regressed => "vv REGRESSED",
-                Verdict::Neutral => "== NEUTRAL",
-            };
-            println!("  {arrow} (delta: {:+.3})", cmp.delta);
-        }
-
+    }
+    for imp in &result.deferred {
         println!(
-            "  strategy v{}: {} tool prefs, {} thresholds",
-            result.strategy.version,
-            result.strategy.tool_preferences.len(),
-            result.strategy.confidence_thresholds.len(),
+            "  [deferred - needs approval] {:?} -> {}",
+            imp.kind, imp.target,
         );
     }
 
-    pub(crate) fn print_live_intro() {
-        println!("Live scoring model:");
-        println!("  score = 0.60 * success_rate + 0.40 * avg_confidence");
-        println!("  verdict = improved/regressed when score delta crosses +/-0.05");
-        println!(
-            "  planner applies a ConfidenceThreshold when score < 0.60 \
+    if let Some(cmp) = &result.comparison {
+        let arrow = match cmp.verdict {
+            Verdict::Improved => "^^ IMPROVED",
+            Verdict::Regressed => "vv REGRESSED",
+            Verdict::Neutral => "== NEUTRAL",
+        };
+        println!("  {arrow} (delta: {:+.3})", cmp.delta);
+    }
+
+    println!(
+        "  strategy v{}: {} tool prefs, {} thresholds",
+        result.strategy.version,
+        result.strategy.tool_preferences.len(),
+        result.strategy.confidence_thresholds.len(),
+    );
+}
+
+pub(crate) fn print_live_intro() {
+    println!("Live scoring model:");
+    println!("  score = 0.60 * success_rate + 0.40 * avg_confidence");
+    println!("  verdict = improved/regressed when score delta crosses +/-0.05");
+    println!(
+        "  planner applies a ConfidenceThreshold when score < 0.60 \
              and findings exist\n"
+    );
+}
+
+pub(crate) fn print_live_trace_input(steps: &[(&str, StepStatus, f32)]) {
+    println!("  input trace:");
+    for (name, status, confidence) in steps {
+        println!(
+            "    - {name}: {} (confidence {:.2})",
+            status_label(*status),
+            confidence
         );
     }
+}
 
-    pub(crate) fn print_live_trace_input(steps: &[(&str, StepStatus, f32)]) {
-        println!("  input trace:");
-        for (name, status, confidence) in steps {
-            println!(
-                "    - {name}: {} (confidence {:.2})",
-                status_label(*status),
-                confidence
-            );
+pub(crate) fn print_live_analysis(result: &praxis::CycleResult) {
+    if !result.evaluation.findings.is_empty() {
+        println!("  findings:");
+        for finding in &result.evaluation.findings {
+            println!("    - {finding}");
         }
     }
 
-    pub(crate) fn print_live_analysis(result: &praxis::CycleResult) {
-        if !result.evaluation.findings.is_empty() {
-            println!("  findings:");
-            for finding in &result.evaluation.findings {
-                println!("    - {finding}");
-            }
-        }
+    if let Some(threshold) = result
+        .strategy
+        .confidence_thresholds
+        .get("speculate_threshold")
+    {
+        println!("  active threshold: speculate_threshold={threshold:.2}");
+    }
 
-        if let Some(threshold) = result
-            .strategy
-            .confidence_thresholds
-            .get("speculate_threshold")
-        {
-            println!("  active threshold: speculate_threshold={threshold:.2}");
-        }
+    if let Some(cmp) = &result.comparison {
+        println!(
+            "  score math: {:.3} -> {:.3} ({:+.3})",
+            cmp.old_metrics.score, cmp.new_metrics.score, cmp.delta
+        );
+        println!(
+            "  success_rate: {:.0}% -> {:.0}% | avg_confidence: {:.2} -> {:.2}",
+            cmp.old_metrics.success_rate * 100.0,
+            cmp.new_metrics.success_rate * 100.0,
+            cmp.old_metrics.avg_confidence,
+            cmp.new_metrics.avg_confidence
+        );
 
-        if let Some(cmp) = &result.comparison {
+        if cmp.delta < REGRESSION_DELTA_THRESHOLD {
             println!(
-                "  score math: {:.3} -> {:.3} ({:+.3})",
-                cmp.old_metrics.score, cmp.new_metrics.score, cmp.delta
-            );
-            println!(
-                "  success_rate: {:.0}% -> {:.0}% | avg_confidence: {:.2} -> {:.2}",
-                cmp.old_metrics.success_rate * 100.0,
-                cmp.new_metrics.success_rate * 100.0,
-                cmp.old_metrics.avg_confidence,
-                cmp.new_metrics.avg_confidence
-            );
-
-            if cmp.delta < REGRESSION_DELTA_THRESHOLD {
-                println!(
-                    "  regression cause: the new trace has fewer successful \
+                "  regression cause: the new trace has fewer successful \
                      steps and lower confidence than the previous trace"
-                );
-            }
+            );
         }
     }
+}
 
-    fn status_label(status: StepStatus) -> &'static str {
-        match status {
-            StepStatus::Ok => "ok",
-            StepStatus::Err => "err",
-            StepStatus::Rejected => "rejected",
-            StepStatus::Skipped => "skipped",
-        }
+fn status_label(status: StepStatus) -> &'static str {
+    match status {
+        StepStatus::Ok => "ok",
+        StepStatus::Err => "err",
+        StepStatus::Rejected => "rejected",
+        StepStatus::Skipped => "skipped",
     }
 }
 
@@ -230,7 +227,7 @@ async fn run_demo(mode: DemoMode) {
         DemoMode::Quick => println!("praxis -- self-improving agent runtime demo\n"),
         DemoMode::Verbose => {
             println!("praxis -- verbose self-improving agent runtime demo\n");
-            demo::print_live_intro();
+            print_live_intro();
         }
     }
 
@@ -370,19 +367,19 @@ async fn run_sequential_demo(runner: &ImprovementLoop, mode: DemoMode) {
     for (label, steps) in sessions {
         println!("--- {label} ---");
         if mode == DemoMode::Verbose {
-            demo::print_live_trace_input(&steps);
+            print_live_trace_input(&steps);
         }
 
-        let trace = demo::make_trace(
+        let trace = make_trace(
             "demo-agent",
             steps,
             runner.config().pipeline_version.clone(),
         );
         let result = runner.run_cycle(&trace).await.unwrap();
 
-        demo::print_result(&result);
+        print_result(&result);
         if mode == DemoMode::Verbose {
-            demo::print_live_analysis(&result);
+            print_live_analysis(&result);
         }
         println!();
     }
@@ -392,7 +389,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
     println!("=== Batch evaluation (concurrency: {BATCH_CONCURRENCY}) ===\n");
 
     let traces: Vec<_> = vec![
-        demo::make_trace(
+        make_trace(
             "fetch-agent",
             vec![
                 ("http-get", StepStatus::Ok, 0.9),
@@ -400,7 +397,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
             ],
             runner.config().pipeline_version.clone(),
         ),
-        demo::make_trace(
+        make_trace(
             "broken-agent",
             vec![
                 ("init", StepStatus::Err, 0.1),
@@ -408,7 +405,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
             ],
             runner.config().pipeline_version.clone(),
         ),
-        demo::make_trace(
+        make_trace(
             "deploy-agent",
             vec![
                 ("build", StepStatus::Ok, 0.8),
@@ -417,7 +414,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
             ],
             runner.config().pipeline_version.clone(),
         ),
-        demo::make_trace(
+        make_trace(
             "review-agent",
             vec![
                 ("diff", StepStatus::Ok, 0.7),
@@ -425,7 +422,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
             ],
             runner.config().pipeline_version.clone(),
         ),
-        demo::make_trace(
+        make_trace(
             "search-agent",
             vec![
                 ("index", StepStatus::Ok, 0.6),
@@ -433,7 +430,7 @@ async fn run_batch_demo(runner: &ImprovementLoop) {
             ],
             runner.config().pipeline_version.clone(),
         ),
-        demo::make_trace(
+        make_trace(
             "test-agent",
             vec![
                 ("discover", StepStatus::Ok, 0.85),

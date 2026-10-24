@@ -166,6 +166,58 @@ fn status_label(status: StepStatus) -> &'static str {
     }
 }
 
+use praxis::approval::ApprovalGate;
+
+// Inline CLI approval gate implementation for the binary
+struct CliApprovalGateInline {
+    reader: std::io::Stdin,
+    writer: std::io::Stdout,
+}
+
+impl CliApprovalGateInline {
+    fn new() -> Self {
+        Self {
+            reader: std::io::stdin(),
+            writer: std::io::stdout(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ApprovalGate for CliApprovalGateInline {
+    async fn review(&self, improvement: &crux_improve::Improvement) -> praxis::ApprovalDecision {
+        use std::io::{BufRead, Write};
+        let mut writer = self.writer.lock();
+        let mut reader = self.reader.lock();
+        let _ = writeln!(writer, "=== Improvement Proposal ===");
+        let _ = writeln!(writer, "Agent: {}", improvement.target);
+        let _ = writeln!(writer, "Kind: {:?}", improvement.kind);
+        let _ = writeln!(writer, "Confidence: {:.2}", improvement.confidence);
+        let _ = writeln!(writer, "Evidence: {:?}", improvement.evidence);
+        let _ = writeln!(writer, "Diff: {:?}", improvement.diff);
+        let _ = writeln!(writer, "Approve? (y/n/d): ");
+        let _ = writer.flush();
+
+        let mut input = String::new();
+        if reader.read_line(&mut input).is_err() {
+            return praxis::ApprovalDecision::Deferred;
+        }
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => praxis::ApprovalDecision::Approved,
+            "n" | "no" => praxis::ApprovalDecision::Rejected,
+            "d" | "defer" => praxis::ApprovalDecision::Deferred,
+            _ => praxis::ApprovalDecision::Deferred,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ApprovalGateKind {
+    #[default]
+    Auto,
+    Cli,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DemoMode {
     Quick,
@@ -173,14 +225,21 @@ enum DemoMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct DemoConfig {
+    mode: DemoMode,
+    approval_gate: ApprovalGateKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct IngestArgs {
     strategy_path: PathBuf,
     roots: Vec<PathBuf>,
+    approval_gate: ApprovalGateKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CliAction {
-    Demo(DemoMode),
+    Demo(DemoConfig),
     Ingest(IngestArgs),
     Help,
 }
@@ -203,7 +262,7 @@ async fn main() {
     };
 
     match action {
-        CliAction::Demo(mode) => run_demo(mode).await,
+        CliAction::Demo(config) => run_demo(config).await,
         CliAction::Ingest(args) => match run_ingest(args).await {
             Ok(report) => {
                 print_ingestion_report(&report);
@@ -222,8 +281,8 @@ async fn main() {
     }
 }
 
-async fn run_demo(mode: DemoMode) {
-    match mode {
+async fn run_demo(config: DemoConfig) {
+    match config.mode {
         DemoMode::Quick => println!("praxis -- self-improving agent runtime demo\n"),
         DemoMode::Verbose => {
             println!("praxis -- verbose self-improving agent runtime demo\n");
@@ -233,6 +292,11 @@ async fn run_demo(mode: DemoMode) {
 
     let strategy_path = PathBuf::from("/tmp/praxis-demo-strategy.json");
     let _ = std::fs::remove_file(&strategy_path);
+
+    let approval_gate = match config.approval_gate {
+        ApprovalGateKind::Auto => Box::new(AutoApproveGate) as Box<dyn ApprovalGate>,
+        ApprovalGateKind::Cli => Box::new(CliApprovalGateInline::new()) as Box<dyn ApprovalGate>,
+    };
 
     let loop_runner = ImprovementLoop::with_config(
         Box::new(MetricsEvaluator),
@@ -247,13 +311,10 @@ async fn run_demo(mode: DemoMode) {
             concurrency: BATCH_CONCURRENCY,
             ..Default::default()
         },
-        // TODO(cli): the approval gate is hard-wired at both construction sites, so
-        // `CliApprovalGate` is unreachable and every improvement is auto-approved. Make the gate
-        // selectable from the command line. (#12)
-        Box::new(AutoApproveGate),
+        approval_gate,
     );
 
-    run_sequential_demo(&loop_runner, mode).await;
+    run_sequential_demo(&loop_runner, config.mode).await;
     run_batch_demo(&loop_runner).await;
     print_strategy_history(&strategy_path);
 }
@@ -263,6 +324,12 @@ async fn run_ingest(args: IngestArgs) -> Result<IngestionReport, String> {
     let store = FileStrategyStore::open(args.strategy_path).map_err(|error| error.to_string())?;
     let mut ledger = FileIngestionLedger::open(ledger_path).map_err(|error| error.to_string())?;
     let source = FileTraceSource::new(args.roots);
+
+    let approval_gate = match args.approval_gate {
+        ApprovalGateKind::Auto => Box::new(AutoApproveGate) as Box<dyn ApprovalGate>,
+        ApprovalGateKind::Cli => Box::new(CliApprovalGateInline::new()) as Box<dyn ApprovalGate>,
+    };
+
     let loop_runner = ImprovementLoop::with_config(
         Box::new(MetricsEvaluator),
         Box::new(DeterministicStrategyPlanner {
@@ -276,7 +343,7 @@ async fn run_ingest(args: IngestArgs) -> Result<IngestionReport, String> {
             concurrency: BATCH_CONCURRENCY,
             ..Default::default()
         },
-        Box::new(AutoApproveGate),
+        approval_gate,
     );
 
     ingest_traces(&loop_runner, &source, &mut ledger)
@@ -486,17 +553,26 @@ where
         .map(|arg| arg.as_ref().to_owned())
         .collect();
 
-    match &args[..] {
+    // Parse global --approval-gate flag
+    let (approval_gate, remaining) = extract_approval_gate(&args);
+
+    match &remaining[..] {
         [] => Ok(CliAction::Help),
         [arg] if matches!(arg.as_str(), "-h" | "--help" | "help") => Ok(CliAction::Help),
         [command, rest @ ..] if command == "ingest" => {
-            parse_ingest_args(rest).map(CliAction::Ingest)
+            let mut ingest = parse_ingest_args(rest)?;
+            ingest.approval_gate = approval_gate;
+            Ok(CliAction::Ingest(ingest))
         }
         [command, rest @ ..] if command == "demo" => {
-            parse_demo_mode_args(rest).map(CliAction::Demo)
+            let config = parse_demo_mode_args(rest, approval_gate)?;
+            Ok(CliAction::Demo(config))
         }
         [arg] if matches!(arg.as_str(), "verbose" | "--verbose") => {
-            Ok(CliAction::Demo(DemoMode::Verbose))
+            Ok(CliAction::Demo(DemoConfig {
+                mode: DemoMode::Verbose,
+                approval_gate,
+            }))
         }
         [arg] => Err(format!("unknown command: {arg}")),
         [first, second, ..] => Err(format!(
@@ -505,20 +581,53 @@ where
     }
 }
 
-fn parse_demo_mode_args(args: &[String]) -> Result<DemoMode, String> {
-    match args {
-        [] => Ok(DemoMode::Quick),
-        [arg] if matches!(arg.as_str(), "quick") => Ok(DemoMode::Quick),
-        [arg] if matches!(arg.as_str(), "verbose" | "--verbose") => Ok(DemoMode::Verbose),
-        [arg] => Err(format!("unknown demo mode: {arg}")),
-        [first, second, ..] => Err(format!(
-            "unexpected extra arguments after {first}: {second}"
-        )),
+fn extract_approval_gate(args: &[String]) -> (ApprovalGateKind, Vec<String>) {
+    let mut approval_gate = ApprovalGateKind::default();
+    let mut remaining = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--approval-gate" {
+            if i + 1 >= args.len() {
+                return (ApprovalGateKind::default(), args.to_vec());
+            }
+            match args[i + 1].as_str() {
+                "auto" => approval_gate = ApprovalGateKind::Auto,
+                "cli" => approval_gate = ApprovalGateKind::Cli,
+                _ => {} // ignore unknown, keep default
+            }
+            i += 2;
+        } else {
+            remaining.push(args[i].clone());
+            i += 1;
+        }
     }
+    (approval_gate, remaining)
+}
+
+fn parse_demo_mode_args(
+    args: &[String],
+    approval_gate: ApprovalGateKind,
+) -> Result<DemoConfig, String> {
+    let mode = match args {
+        [] => DemoMode::Quick,
+        [arg] if matches!(arg.as_str(), "quick") => DemoMode::Quick,
+        [arg] if matches!(arg.as_str(), "verbose" | "--verbose") => DemoMode::Verbose,
+        [arg] => return Err(format!("unknown demo mode: {arg}")),
+        [first, second, ..] => {
+            return Err(format!(
+                "unexpected extra arguments after {first}: {second}"
+            ));
+        }
+    };
+    Ok(DemoConfig {
+        mode,
+        approval_gate,
+    })
 }
 
 fn parse_ingest_args(args: &[String]) -> Result<IngestArgs, String> {
-    let [flag, strategy, roots @ ..] = args else {
+    let (approval_gate, remaining) = extract_approval_gate(args);
+    let [flag, strategy, roots @ ..] = &remaining[..] else {
         return Err("ingest requires --strategy <file> and at least one root".into());
     };
     if flag != "--strategy" {
@@ -537,6 +646,7 @@ fn parse_ingest_args(args: &[String]) -> Result<IngestArgs, String> {
     Ok(IngestArgs {
         strategy_path: PathBuf::from(strategy),
         roots: roots.iter().map(PathBuf::from).collect(),
+        approval_gate,
     })
 }
 
@@ -553,7 +663,8 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliAction, DemoMode, IngestArgs, ingestion_exit_failed, parse_args, parse_demo_mode_args,
+        ApprovalGateKind, CliAction, DemoConfig, DemoMode, IngestArgs, ingestion_exit_failed,
+        parse_args, parse_demo_mode_args,
     };
     use praxis::IngestionReport;
     use std::path::PathBuf;
@@ -572,25 +683,46 @@ mod tests {
 
     #[test]
     fn parse_args_accepts_demo_command() {
-        assert_eq!(parse_args(["demo"]), Ok(CliAction::Demo(DemoMode::Quick)));
+        assert_eq!(
+            parse_args(["demo"]),
+            Ok(CliAction::Demo(DemoConfig {
+                mode: DemoMode::Quick,
+                approval_gate: ApprovalGateKind::Auto,
+            }))
+        );
         assert_eq!(
             parse_args(["demo", "quick"]),
-            Ok(CliAction::Demo(DemoMode::Quick))
+            Ok(CliAction::Demo(DemoConfig {
+                mode: DemoMode::Quick,
+                approval_gate: ApprovalGateKind::Auto,
+            }))
         );
         assert_eq!(
             parse_args(["demo", "verbose"]),
-            Ok(CliAction::Demo(DemoMode::Verbose))
+            Ok(CliAction::Demo(DemoConfig {
+                mode: DemoMode::Verbose,
+                approval_gate: ApprovalGateKind::Auto,
+            }))
         );
         assert_eq!(
             parse_args(["demo", "--verbose"]),
-            Ok(CliAction::Demo(DemoMode::Verbose))
+            Ok(CliAction::Demo(DemoConfig {
+                mode: DemoMode::Verbose,
+                approval_gate: ApprovalGateKind::Auto,
+            }))
         );
     }
 
     #[test]
     fn parse_args_accepts_verbose_alias() {
         for arg in ["verbose", "--verbose"] {
-            assert_eq!(parse_args([arg]), Ok(CliAction::Demo(DemoMode::Verbose)));
+            assert_eq!(
+                parse_args([arg]),
+                Ok(CliAction::Demo(DemoConfig {
+                    mode: DemoMode::Verbose,
+                    approval_gate: ApprovalGateKind::Auto,
+                }))
+            );
         }
     }
 
@@ -613,6 +745,7 @@ mod tests {
             Ok(CliAction::Ingest(IngestArgs {
                 strategy_path: PathBuf::from("state.json"),
                 roots: vec![PathBuf::from("traces-a"), PathBuf::from("traces-b")],
+                approval_gate: ApprovalGateKind::Auto,
             }))
         );
     }
@@ -631,22 +764,32 @@ mod tests {
 
     #[test]
     fn parse_demo_mode_args_defaults_to_quick() {
-        assert_eq!(parse_demo_mode_args(&[]), Ok(DemoMode::Quick));
+        assert_eq!(
+            parse_demo_mode_args(&[], ApprovalGateKind::Auto),
+            Ok(DemoConfig {
+                mode: DemoMode::Quick,
+                approval_gate: ApprovalGateKind::Auto,
+            })
+        );
     }
 
     #[test]
     fn parse_demo_mode_args_accepts_verbose_aliases() {
         for arg in ["verbose", "--verbose"] {
             assert_eq!(
-                parse_demo_mode_args(&[arg.to_string()]),
-                Ok(DemoMode::Verbose)
+                parse_demo_mode_args(&[arg.to_string()], ApprovalGateKind::Auto),
+                Ok(DemoConfig {
+                    mode: DemoMode::Verbose,
+                    approval_gate: ApprovalGateKind::Auto,
+                })
             );
         }
     }
 
     #[test]
     fn parse_demo_mode_args_rejects_unknown() {
-        let error = parse_demo_mode_args(&["--nope".to_string()]).unwrap_err();
+        let error =
+            parse_demo_mode_args(&["--nope".to_string()], ApprovalGateKind::Auto).unwrap_err();
         assert!(error.contains("--nope"));
     }
 

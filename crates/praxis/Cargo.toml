@@ -19,3 +19,7 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "praxis-cli-tool"
+path = "src/main.rs"

@@ -6,8 +6,10 @@ use crux_improve::{Improvement, Strategy};
 use crate::evaluator::Evaluation;
 use crate::reward::Trend;
 
+/// Errors that can occur during strategy planning.
 #[derive(Debug, thiserror::Error)]
 pub enum PlannerError {
+    /// Planning failed.
     #[error("planner error: {0}")]
     Failed(String),
 }

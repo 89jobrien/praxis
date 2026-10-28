@@ -2,6 +2,7 @@
 
 use crux_improve::{Strategy, StrategyDiff};
 
+/// Persistence port for versioned agent strategies.
 pub trait StrategyStore: Send + Sync {
     /// Returns the latest strategy snapshot.
     fn current(&self) -> Strategy;

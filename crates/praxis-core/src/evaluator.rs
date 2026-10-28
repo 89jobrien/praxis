@@ -5,18 +5,27 @@ use chrono::{DateTime, Utc};
 use crux_improve::{Crux, CruxId, TraceMetrics};
 use serde::{Deserialize, Serialize};
 
+/// Evaluation result for a single trace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Evaluation {
+    /// The trace that was evaluated.
     pub trace_id: CruxId,
+    /// The agent that produced the trace.
     pub agent: String,
+    /// Overall quality score (0.0–1.0).
     pub score: f32,
+    /// Actionable findings extracted from the trace.
     pub findings: Vec<String>,
+    /// Structured metrics extracted from the trace.
     pub metrics: TraceMetrics,
+    /// When the evaluation was performed.
     pub evaluated_at: DateTime<Utc>,
 }
 
+/// Errors that can occur during trace evaluation.
 #[derive(Debug, thiserror::Error)]
 pub enum EvaluationError {
+    /// Evaluation failed.
     #[error("evaluation failed: {0}")]
     Failed(String),
 }

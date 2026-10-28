@@ -352,9 +352,9 @@ async fn run_ingest(args: IngestArgs) -> Result<IngestionReport, String> {
 }
 
 fn ingestion_ledger_path(strategy_path: &Path) -> PathBuf {
-    let mut path = strategy_path.as_os_str().to_os_string();
-    path.push(".ingested.json");
-    PathBuf::from(path)
+    let mut path = strategy_path.to_path_buf();
+    path.set_extension("ingested.json");
+    path
 }
 
 fn print_ingestion_report(report: &IngestionReport) {

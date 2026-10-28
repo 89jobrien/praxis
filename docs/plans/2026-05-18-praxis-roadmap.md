@@ -1,8 +1,5 @@
 # Plan: Praxis Roadmap — Six Features
 
-<!-- TODO(docs): the code samples below still use the pre-rename `cruxx_improve` crate name.
-Update them, or mark this plan as a snapshot that predates the rename. (#17) -->
-
 ## Goal
 
 Evolve praxis from a demo-ready prototype into a production-capable
@@ -292,7 +289,7 @@ comprehensive test coverage.
 
    ```rust
    use async_trait::async_trait;
-   use cruxx_improve::Improvement;
+   use crux_improve::Improvement;
 
    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
    pub enum ApprovalDecision {
@@ -443,7 +440,7 @@ comprehensive test coverage.
 1. Implement:
 
    ```rust
-   use cruxx_improve::Strategy;
+   use crux_improve::Strategy;
    use std::path::Path;
 
    /// Exports the current strategy as a JSON file that braid can

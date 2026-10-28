@@ -1,8 +1,5 @@
 # CLAUDE.md
 
-<!-- TODO(docs): this file still uses the pre-rename `cruxx-*` crate names, and the
-`cruxx-planner` crate no longer exists in the crux workspace. Update the references. (#16) -->
-
 This file provides guidance to Claude Code when working with the praxis
 codebase.
 
@@ -10,7 +7,7 @@ codebase.
 
 Praxis is a self-improving agent runtime that closes the loop between
 execution traces, evaluation, and strategy evolution. It depends on
-`cruxx-improve` from the crux workspace as its single bridge dependency.
+`crux-improve` from the crux workspace as its single bridge dependency.
 
 ## Build Commands
 
@@ -46,13 +43,13 @@ wires them together.
 ### Dependency Direction
 
 ```text
-praxis -> cruxx-improve -> cruxx-core, cruxx-types, cruxx-planner
+praxis -> crux-improve -> crux-core, crux-types, crux-planner
 ```
 
-Praxis never imports cruxx-core, cruxx-types, or cruxx-planner directly.
-`cruxx-improve` is the single entry point for all crux types.
+Praxis never imports crux-core, crux-types, or crux-planner directly.
+`crux-improve` is the single entry point for all crux types.
 
-### Key Types (from cruxx-improve)
+### Key Types (from crux-improve)
 
 - `Crux<T>` — execution trace fused with result
 - `TraceMetrics` — extracted metrics (success rate, confidence, depth)
